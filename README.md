@@ -318,11 +318,17 @@ For the client:
 1. ***CLI Client*** - runs in the background, establishes a connection between the client and the server, listens for user input
 2. ***AuthN*** - verifies the server certificate is valid
 
+As each module is being developed, I'll start with the basic functionality (i.e. "`start` command kicks off a job and returns a PID"), and build upon it with subsequent PRs (i.e. "support starting/running concurrent processes"). 
+This will allow me to build and test incrementally, in order to ensure quality and functionality. 
+
 <!-- omit from toc -->
 #### gRPC
 Since I'll be using gRPC for the API, I will auto-generate the server and client code from the proto file.
 
 
 ### Tradeoffs
-* Normally I would never leak certificates and keys by committing them to a repository, but in order to allow for proper evaluation I will include them in PRs as I prove out mTLS. In a real-world environment, I would provide one set of each as test fixtures.
-
+* Normally I would never leak certificates and keys by committing them to a repository, but in order to allow for proper evaluation I will include them in PRs as I prove out mTLS. In a real-world environment, I would provide one mocked set of each as test fixtures.
+* I usually prefer to document designs using either UML or C4 models, but I didn't think it would be appropriate given the preference for basic markdown. 
+Visual media like these tend to help convey a design better than text does, and helps me to better organize my thoughts when I can zoom in / out of a context, container or component.
+* Given the guidelines of "4-5 pull requests" to build this feature, my PRs will likely be larger than I would typically make them. 
+Normally I'd aim for no more than 100-200 lines of code per PR (not inclusive of tests).
