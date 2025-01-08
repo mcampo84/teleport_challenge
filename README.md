@@ -66,7 +66,7 @@ The CLI will enable the client to execute the following, assuming they are authe
 4. [stream](#stream)
 
 #### start
-The `start` command will be responsible for kicking off a job on a remote server. Provided the client has permissions to execute the job, the command will return a PID to the user.
+The `start` command will be responsible for kicking off a job on a remote server. Provided the client has permissions to execute the job, the command will return a UUID to the user.
 
 **Examples**:  
 
@@ -74,7 +74,7 @@ Successful execution
 ```bash
 > start [command] [arguments...]
 Starting [command] with [arguments...]...
-Success! PID: [pid]
+Success! Job ID: [uuid]
 ```
 
 Error
@@ -85,69 +85,63 @@ Error: [error message]
 ```
 
 #### stop
-In order to stop a process, the user will need its PID and pass it to the `stop` command. Assuming the client has the necessary permissions, this will interrupt the execution of the job and return a success/failure message.
+In order to stop a process, the user will need its UUID and pass it to the `stop` command. Assuming the client has the necessary permissions, this will interrupt the execution of the job and return a success/failure message.
 
 **Examples**:
 
 Successful execution
 ```bash
-> stop [pid]
-Stopping [pid]...
-Job [pid] successfully stopped!
+> stop [job uuid]
+Stopping [job uuid]...
+Job [job uuid] successfully stopped!
 ```
 
 Error
 ```bash
-> stop [pid]
-Stopping [pid]...
-Error: [pid] could not be stopped. [error message]
+> stop [job uuid]
+Stopping [job uuid]...
+Error: [job uuid] could not be stopped. [error message]
 ```
 
 #### status
-In order to retrieve the status of a job, the user will needs its PID and pass it to the `status` command. Assuming the client has permission to query the status, and the job is active, this will return the job status, including CPU, memory, and disk I/O resource information.
+In order to retrieve the status of a job, the user will needs its UUID and pass it to the `status` command. Assuming the client has permission to query the status, and the job is active, this will return the job status, including CPU, memory, and disk I/O resource information.
 
 **Examples**:
 
 Successful execution
 ```bash
-> status [pid]
-Querying the status of [pid]...
-Job [pid] is running.
-
-=========================
-|CPU:      | 23%        |
-|Memory:   | 32MB       |
-|Disk I/O: | 2.37k iops |
-=========================
+> status [job uuid]
+Querying the status of [job uuid]...
+Job [job uuid] is running.
 ```
 
 Error
 ```bash
-> status [pid]
-Querying the status of [pid]...
-Error: Job [pid] not found
+> status [job uuid]
+Querying the status of [job uuid]...
+Error: Job [job uuid] not found
 ```
 
 #### stream
-In order to stream the output of a job, the user will need its PID and pass it to the `stream` command. Assuming the client has permission to strem the output, the output will be returned from the start of the process, and streamed to the CLI as new output is written.
+In order to stream the output of a job, the user will need its UUID and pass it to the `stream` command. Assuming the client has permission to strem the output, the output will be returned from the start of the process, and streamed to the CLI as new output is written.
 
 **Examples**:
 
 Successful execution
 ```bash
-> stream [pid]
-Starting output stream for [pid]...
+> stream [job uuid]
+Starting output stream for [job uuid]...
 ================
-[timestamp] [command] started
-[timestamp] [log output]
-[timestamp] [log output]
+[command] started
+[log output]
+[log output]
 ...
 ```
 
 Error
 ```bash
-> stream [pid]
-Starting output stream for [pid]...
+> stream [job uuid]
+Starting output stream for [job uuid]...
 ================
 Error: [error message]
 Exit [status]
@@ -183,17 +177,18 @@ All resource allocations will be hard-coded for this exercise, and all allow-lis
 2. Client Authentication (middleware) - set client ID in context
 3. Client Authorization
    1. For `start` ensure the client ID is permitted to execute the job they've requested
-   2. For `stop`, `status` and `stream` commands, ensure the PID belongs to the client
+   2. For `stop`, `status` and `stream` commands, ensure the UUID belongs to the client
 4. `start`
    1. Using goroutine, start the requested process & capture the PID
-      1. Begin capturing output in a buffer dedicated to the PID
-      2. Assign the PID to a cgroup using a hard-coded mapping
-      3. Map the PID to the client ID to ensure only this client may access the process
-      4. Return the PID
+      1. Generate a UUID and assign it to the job
+      2. Begin capturing output in a buffer dedicated to the job
+      3. Assign the job to a cgroup using a hard-coded mapping
+      4. Map the job UUID to the client ID to ensure only this client may access the process
+      5. Return the UUID
 5. `stop`
    1. Stop the job
    2. Close the job's output buffer
-   3. Unset the PID in the ownership map
+   3. Unset the UUID in the ownership map
    4. Return a success/error message
 6. `status`
    1. Return the job's status
@@ -221,34 +216,30 @@ message StartRequest {
 
 message StartResponse {
     string pid = 1;
-    string error = 2;
 }
 
 message StopRequest {
-    string pid = 1;
+    string uuid = 1;
 }
 
 message StopResponse {
     string result = 1;
-    string error = 2;
 }
 
 message StatusRequest {
-    string pid = 1;
+    string uuid = 1;
 }
 
 message StatusResponse {
     string status = 1;
-    string error = 2;
 }
 
 message StreamOutputRequest {
-    string pid = 1;
+    string uuid = 1;
 }
 
 message StreamOutputResponse {
     string output = 1;
-    string error = 2;
 }
 
 message Argument {
@@ -260,11 +251,12 @@ message Argument {
 ### Security Considerations
 1. While mTLS will be the method by which we authenticate the server and the client to one another, **permissions will be hard-coded for three separate clients for whom certificates will be generated for testing purposes**. The permissions will be a simple map of the client ID, associated with a discrete allow-list of commands that the client may execute.
 
-2. No client will have visibility into the processes of another client. To achieve this, each PID will be stored in memory as it is running, and will map to its owner's client ID.
+2. No client will have visibility into the processes of another client. 
+To achieve this, each job ID will be stored in memory as it is running, and will map to its owner's client ID.
 
-3. Allowing remote access to _all_ linux commands through this proxy sounds well beyond the scope of what this exercise seems to want me to do, and could be exploited by an attacker if permitted. 
-Instead, an allow-list of commands will be provided. 
-For this exercise, I'll hard-code it but normally that would be stored either in a config file or some other format that could then be deliberately edited by an authorized administrator.
+1. Client identity will be established using M2M authentication via a mocked API key. 
+For this exercise, I'll just pass along a UUID for each client in an auth header for each request.
+Since we're encrypting communication in both directions with mTLS, we can pass this in plaintext safely.
 
 <!-- omit from toc -->
 #### TLS
@@ -341,7 +333,7 @@ For the client:
 1. ***CLI Client*** - runs in the background, establishes a connection between the client and the server, listens for user input
 2. ***AuthN*** - verifies the server certificate is valid
 
-As each module is being developed, I'll start with the basic functionality (i.e. "`start` command kicks off a job and returns a PID"), and build upon it with subsequent PRs (i.e. "support starting/running concurrent processes"). 
+As each module is being developed, I'll start with the basic functionality (i.e. "`start` command kicks off a job and returns a job's UUID"), and build upon it with subsequent PRs (i.e. "support starting/running concurrent processes"). 
 This will allow me to build and test incrementally, in order to ensure quality and functionality. 
 
 <!-- omit from toc -->
