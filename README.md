@@ -17,6 +17,7 @@ state: draft
     - [cgroup 1 - small jobs](#cgroup-1---small-jobs)
     - [cgroup 2 - medium jobs](#cgroup-2---medium-jobs)
     - [cgroup 3 - large jobs](#cgroup-3---large-jobs)
+- [Process Execution Lifecycle (happy path)](#process-execution-lifecycle-happy-path)
 - [API](#api)
 - [Security Considerations](#security-considerations)
 - [Test Plan](#test-plan)
@@ -177,6 +178,29 @@ All resource allocations will be hard-coded for this exercise, and all allow-lis
 * **Memory**: 8GB
 * **Disk I/O (bandwidth)**: 100MB/s
 
+### Process Execution Lifecycle (happy path)
+1. Receive request
+2. Client Authentication (middleware) - set client ID in context
+3. Client Authorization
+   1. For `start` ensure the client ID is permitted to execute the job they've requested
+   2. For `stop`, `status` and `stream` commands, ensure the PID belongs to the client
+4. `start`
+   1. Using goroutine, start the requested process & capture the PID
+      1. Begin capturing output in a buffer dedicated to the PID
+      2. Assign the PID to a cgroup using a hard-coded mapping
+      3. Map the PID to the client ID to ensure only this client may access the process
+      4. Return the PID
+5. `stop`
+   1. Stop the job
+   2. Close the job's output buffer
+   3. Unset the PID in the ownership map
+   4. Return a success/error message
+6. `status`
+   1. Return the job's status
+7. `stream`
+   1. Open the output buffer & stream all lines that exist
+   2. Continue streaming the output until an interrupt signal is intercepted
+
 ### API
 ```proto
 syntax = "proto3";
@@ -187,7 +211,7 @@ service CommandService {
     rpc Start (StartRequest) returns (StartResponse);
     rpc Stop (StopRequest) returns (StopResponse);
     rpc Status (StatusRequest) returns (StatusResponse);
-    rpc Stream (StreamRequest) returns (stream StreamResponse);
+    rpc StreamOutput (StreamOutputRequest) returns (stream StreamOutputResponse);
 }
 
 message StartRequest {
@@ -218,11 +242,11 @@ message StatusResponse {
     string error = 2;
 }
 
-message StreamRequest {
+message StreamOutputRequest {
     string pid = 1;
 }
 
-message StreamResponse {
+message StreamOutputResponse {
     string output = 1;
     string error = 2;
 }
@@ -290,7 +314,6 @@ With these steps completed, we will have a complete set of credentials for the c
 ### Test Plan
 While I recognize the importance of unit testing and integration testing, given the time constraints for this exercise I will selectively test specific components.
 Please refer to the [test plan](./doc/test_plan.md) for the behaviors I will evaluate.
-
 
 ### Scope
 Since this is an exercise and not meant to be fully-scoped, we're going to stick to the meat of the exercise. That means the following will _not_ be considered:
