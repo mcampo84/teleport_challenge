@@ -1,0 +1,31 @@
+# Use an official Golang runtime as a parent image
+FROM golang:latest
+
+# Set the working directory inside the container
+WORKDIR /app
+
+# Copy the server directory contents into the container at /app
+COPY . .
+
+# Copy the server certificate, key, and CA certificate into the container
+COPY certs/server-cert.pem /app/certs/server-cert.pem
+COPY certs/server-key.pem /app/certs/server-key.pem
+COPY certs/ca-cert.pem /app/certs/ca-cert.pem
+
+# Copy the cgroup setup script into the container
+COPY setup_cgroups.sh /app/setup_cgroups.sh
+
+# Make the script executable
+RUN chmod +x /app/setup_cgroups.sh
+
+# Install any needed dependencies
+RUN go mod download
+
+# Build the Go app
+RUN go build -o server ./server/main.go
+
+# Expose the application port
+EXPOSE 50051
+
+# Run the cgroup setup script and the Go app
+CMD ["/bin/sh", "-c", "/app/setup_cgroups.sh && ./server"]
