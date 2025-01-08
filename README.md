@@ -242,7 +242,6 @@ message Argument {
 Instead, an allow-list of commands will be provided. 
 For this exercise, I'll hard-code it but normally that would be stored either in a config file or some other format that could then be deliberately edited by an authorized administrator.
 
-
 <!-- omit from toc -->
 #### TLS
 Since TLS version 1.3 is the most recent version as of 2018, we'll use version 1.3. 
@@ -298,6 +297,7 @@ Since this is an exercise and not meant to be fully-scoped, we're going to stick
 * Remotely configurable `cgroup`s
 * Deployment considerations / orchestration
 * Containerization
+* CI/CD - instead of running tests through github actions or another CI/CD pipeline, I'll run them locally and provide results in my PRs
 
 ### Design Approach
 When designing this system, I'm considering the following:
