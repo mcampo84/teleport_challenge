@@ -289,7 +289,25 @@ With these steps completed, we will have a complete set of credentials for the s
 <!-- omit from toc -->
 ##### Client Certificate
 We can reuse the same signing authority we set up for the server, since in a production environment, we would assume trust of a common certificate authority.
-1. Generate the client key and CSR
+1. Provide metadata for the client's certificate with a config file
+```text
+# openssl_client.cnf
+[ req ]
+default_bits       = 2048
+default_md         = sha256
+prompt             = no
+distinguished_name = dn
+
+[ dn ]
+C            = US
+ST           = New York
+L            = New York
+O            = Client name
+OU           = IT Department
+CN           = example.com
+emailAddress = admin@example.com
+```
+2. Generate the client key and CSR
 ```bash
 # generate the client private key using AES256
 > openssl genpkey -algorithm RSA -out client.key -aes256
@@ -297,7 +315,7 @@ We can reuse the same signing authority we set up for the server, since in a pro
 # generate the client CSR
 > openssl req -new -key client.key -out client.csr
 ```
-2. Sign the client certificate with the CA
+3. Sign the client certificate with the CA
 ```bash
 > openssl x509 -req -in client.csr -CA ca.crt -CAkey ca.key -CAcreateserial -out client.crt -days 365 -sha256
 ```
