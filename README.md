@@ -17,6 +17,7 @@ state: draft
     - [cgroup 1 - small jobs](#cgroup-1---small-jobs)
     - [cgroup 2 - medium jobs](#cgroup-2---medium-jobs)
     - [cgroup 3 - large jobs](#cgroup-3---large-jobs)
+  - [Log Streaming](#log-streaming)
 - [Process Execution Lifecycle (happy path)](#process-execution-lifecycle-happy-path)
 - [API](#api)
 - [Security Considerations](#security-considerations)
@@ -171,6 +172,10 @@ All resource allocations will be hard-coded for this exercise, and all allow-lis
 * **CPU**: 50%
 * **Memory**: 8GB
 * **Disk I/O (bandwidth)**: 100MB/s
+
+#### Log Streaming
+When a `Job` is started, a goroutine will start which makes use of channels to communicate log lines and job termination events. 
+Each time a client requests a stream, a new goroutine will start, and will access the channel in order to receive these events.
 
 ### Process Execution Lifecycle (happy path)
 1. Receive request
