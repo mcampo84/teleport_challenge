@@ -289,7 +289,7 @@ With these steps completed, we will have a complete set of credentials for the s
 <!-- omit from toc -->
 ##### Client Certificate
 We can reuse the same signing authority we set up for the server, since in a production environment, we would assume trust of a common certificate authority.
-1. Provide metadata for the client's certificate with a config file
+1. Provide metadata for the client's certificate with a config file. We will use the Common Name (CN) to identify the client on the server.
 ```text
 # openssl_client.cnf
 [ req ]
