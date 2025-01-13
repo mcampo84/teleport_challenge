@@ -14,9 +14,7 @@ state: draft
   - [status](#status)
   - [stream](#stream)
   - [cgroups](#cgroups)
-    - [cgroup 1 - small jobs](#cgroup-1---small-jobs)
-    - [cgroup 2 - medium jobs](#cgroup-2---medium-jobs)
-    - [cgroup 3 - large jobs](#cgroup-3---large-jobs)
+    - [cgroup example](#cgroup-example)
   - [Log Streaming](#log-streaming)
 - [Process Execution Lifecycle (happy path)](#process-execution-lifecycle-happy-path)
 - [API](#api)
@@ -158,24 +156,123 @@ I'll use a simple dockerfile to accomplish this.
 
 All resource allocations will be hard-coded for this exercise, and all allow-listed jobs will be mapped to a specific cgroup.
 
-##### cgroup 1 - small jobs
+##### cgroup example
 * **CPU**: 10%
 * **Memory**: 100MB
 * **Disk I/O (bandwidth)**: 10MB/s
 
-##### cgroup 2 - medium jobs
-* **CPU**: 25%
-* **Memory**: 1GB
-* **Disk I/O (bandwidth)**: 50MB/s
-
-##### cgroup 3 - large jobs
-* **CPU**: 50%
-* **Memory**: 8GB
-* **Disk I/O (bandwidth)**: 100MB/s
-
 #### Log Streaming
-When a `Job` is started, a goroutine will start which makes use of channels to communicate log lines and job termination events. 
-Each time a client requests a stream, a new goroutine will start, and will access the channel in order to receive these events.
+When a `Job` is started, a goroutine will start which makes use of channels and mutex to communicate log lines and job termination events. 
+Each time a client requests a stream, it will access the log buffer and stream the output from the beginning, and continue streaming as new lines are output by the job.
+
+Example
+```go
+// job.go
+
+type Job struct {
+	ID          string
+	LogBuffer   []string
+	LogChannel  chan string
+	DoneChannel chan struct{}
+	mu          sync.Mutex
+}
+
+func (j *Job) StreamOutput(stream pb.CommandService_StreamOutputServer) error {
+    // Stream the existing log buffer
+	j.mu.Lock()
+	for _, logLine := range j.LogBuffer {
+		if err := stream.Send(&pb.StreamOutputResponse{Output: logLine}); err != nil {
+			j.mu.Unlock()
+			return err
+		}
+	}
+	j.mu.Unlock()
+
+	// Stream new log lines and job completion
+	for {
+		select {
+		case logLine := <-j.LogChannel:
+			if err := stream.Send(&pb.StreamOutputResponse{Output: logLine}); err != nil {
+				return err
+			}
+		case <-j.DoneChannel:
+			return nil
+		}
+	}
+}
+```
+
+```go
+// job_manager.go
+
+type JobManager struct {
+	jobs     map[string]*Job
+	jobMutex sync.Mutex
+}
+
+func (jm *JobManager) StartJob(command string, args ...Argument) {
+	jm.jobMutex.Lock()
+	defer jm.jobMutex.Unlock()
+
+    id = uuid.New() # not imported for code example
+
+	job := &Job{
+		ID:          id,
+		LogBuffer:   []string{},
+		LogChannel:  make(chan string),
+		DoneChannel: make(chan struct{}),
+	}
+	jm.jobs[id] = job
+
+	// Initiate job execution and log writing
+	go jm.start(job, command, args...)
+}
+
+func (jm *JobManager) start(job *Job, command string, args ...Argument) {
+    // Convert arguments to a slice of strings
+    argStrings := make([]string, len(args))
+    for i, arg := range args {
+        argStrings[i] = arg.value
+    }
+
+    // Execute the command
+    cmd := exec.Command(command, argStrings...)
+    stdout, err := cmd.StdoutPipe()
+    if err != nil {
+        log.Fatalf("Failed to get stdout pipe: %v", err)
+    }
+
+    if err := cmd.Start(); err != nil {
+        log.Fatalf("Failed to start command: %v", err)
+    }
+
+    // Log command output
+    go jm.logOutput(job, stdout)
+
+    // Wait for the command to finish
+    if err := cmd.Wait(); err != nil {
+        log.Fatalf("Command finished with error: %v", err)
+    }
+
+    // Simulate job completion
+    close(job.DoneChannel)
+}
+
+func (jm *JobManager) logOutput(job *Job, stdout io.ReadCloser) {
+    scanner := bufio.NewScanner(stdout)
+    for scanner.Scan() {
+        logLine := scanner.Text()
+        job.mu.Lock()
+        job.LogBuffer = append(job.LogBuffer, logLine)
+        job.mu.Unlock()
+        job.LogChannel <- logLine
+    }
+
+    if err := scanner.Err(); err != nil {
+        log.Fatalf("Error reading command output: %v", err)
+    }
+}
+```
 
 ### Process Execution Lifecycle (happy path)
 1. Receive request
