@@ -165,40 +165,45 @@ All resource allocations will be hard-coded for this exercise, and all allow-lis
 When a `Job` is started, a goroutine will start which makes use of channels and mutex to communicate log lines and job termination events. 
 Each time a client requests a stream, it will access the log buffer and stream the output from the beginning, and continue streaming as new lines are output by the job.
 
-Example
 ```go
 // job.go
 
 type Job struct {
-	ID          string
-	LogBuffer   []string
-	LogChannel  chan string
-	DoneChannel chan struct{}
-	mu          sync.Mutex
+    ID            string
+    LogBuffer     [][]byte
+    LogChannels   []chan []byte
+    DoneChannel   chan struct{}
+    mu            sync.Mutex
 }
 
 func (j *Job) StreamOutput(stream pb.CommandService_StreamOutputServer) error {
-    // Stream the existing log buffer
-	j.mu.Lock()
-	for _, logLine := range j.LogBuffer {
-		if err := stream.Send(&pb.StreamOutputResponse{Output: logLine}); err != nil {
-			j.mu.Unlock()
-			return err
-		}
-	}
-	j.mu.Unlock()
+    // create & add a channel to the Job so we can stream the output as it comes
+    logChannel := make(chan []byte)
+    j.mu.Lock()
+    j.LogChannels = append(j.LogChannels, logChannel)
+    j.mu.Unlock()
 
-	// Stream new log lines and job completion
-	for {
-		select {
-		case logLine := <-j.LogChannel:
-			if err := stream.Send(&pb.StreamOutputResponse{Output: logLine}); err != nil {
-				return err
-			}
-		case <-j.DoneChannel:
-			return nil
-		}
-	}
+    // Stream the existing log buffer
+    j.mu.Lock()
+    for _, logLine := range j.LogBuffer {
+        if err := stream.Send(&pb.StreamOutputResponse{Output: string(logLine)}); err != nil {
+            j.mu.Unlock()
+            return err
+        }
+    }
+    j.mu.Unlock()
+
+    // Stream new log lines and job completion
+    for {
+        select {
+        case logLine := <-logChannel:
+            if err := stream.Send(&pb.StreamOutputResponse{Output: string(logLine)}); err != nil {
+                return err
+            }
+        case <-j.DoneChannel:
+            return nil
+        }
+    }
 }
 ```
 
@@ -206,26 +211,26 @@ func (j *Job) StreamOutput(stream pb.CommandService_StreamOutputServer) error {
 // job_manager.go
 
 type JobManager struct {
-	jobs     map[string]*Job
-	jobMutex sync.Mutex
+    jobs     map[string]*Job
+    jobMutex sync.Mutex
 }
 
 func (jm *JobManager) StartJob(command string, args ...Argument) {
-	jm.jobMutex.Lock()
-	defer jm.jobMutex.Unlock()
+    jm.jobMutex.Lock()
+    defer jm.jobMutex.Unlock()
 
-    id = uuid.New() # not imported for code example
+    id := uuid.New().String()
 
-	job := &Job{
-		ID:          id,
-		LogBuffer:   []string{},
-		LogChannel:  make(chan string),
-		DoneChannel: make(chan struct{}),
-	}
-	jm.jobs[id] = job
+    job := &Job{
+        ID:          id,
+        LogBuffer:   [][]byte{},
+        LogChannels: []chan []byte{},
+        DoneChannel: make(chan struct{}),
+    }
+    jm.jobs[id] = job
 
-	// Initiate job execution and log writing
-	go jm.start(job, command, args...)
+    // Initiate job execution and log writing
+    go jm.start(job, command, args...)
 }
 
 func (jm *JobManager) start(job *Job, command string, args ...Argument) {
@@ -259,17 +264,25 @@ func (jm *JobManager) start(job *Job, command string, args ...Argument) {
 }
 
 func (jm *JobManager) logOutput(job *Job, stdout io.ReadCloser) {
-    scanner := bufio.NewScanner(stdout)
-    for scanner.Scan() {
-        logLine := scanner.Text()
+    reader := bufio.NewReader(stdout)
+    for {
+        logLine, err := reader.ReadBytes('\n')
+        if err != nil {
+            if err == io.EOF {
+                break
+            }
+            log.Fatalf("Error reading command output: %v", err)
+        }
         job.mu.Lock()
-        job.LogBuffer = append(job.LogBuffer, logLine)
-        job.mu.Unlock()
-        job.LogChannel <- logLine
-    }
 
-    if err := scanner.Err(); err != nil {
-        log.Fatalf("Error reading command output: %v", err)
+        // add lines to the LogBuffer, to support new clients requesting an output stream
+        job.LogBuffer = append(job.LogBuffer, logLine)
+
+        // for existing clients, send the new log line to the channel for streaming
+        for _, ch := range job.LogChannels {
+            ch <- logLine
+        }
+        job.mu.Unlock()
     }
 }
 ```
