@@ -275,10 +275,19 @@ func (jm *JobManager) start(job *Job, command string, args ...Argument) {
 }
 
 func (jm *JobManager) logOutput(job *Job, stdout io.ReadCloser) {
-    scanner := bufio.NewScanner(stdout)
+    buffer := make([]byte, 1024)
 
-    for scanner.Scan() {
-        logLine := scanner.Bytes()
+    // read the output in 1024-byte chunks, and forward to the log buffer (and all waiting channels)
+    for {
+        n, err := stdout.Read(buffer)
+        if err != nil {
+            if err == io.EOF {
+                break
+            }
+            log.Fatalf("Error reading command output: %v", err)
+        }
+
+        logLine := buffer[:n]
         job.mu.Lock()
 
         // add lines to the LogBuffer, to support new clients requesting an output stream
@@ -289,10 +298,6 @@ func (jm *JobManager) logOutput(job *Job, stdout io.ReadCloser) {
             ch <- logLine
         }
         job.mu.Unlock()
-    }
-
-    if err := scanner.Err(); err != nil {
-        log.Fatalf("Error reading command output: %v", err)
     }
 }
 ```
