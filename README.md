@@ -222,10 +222,6 @@ func (j *Job) StreamOutput(stream pb.CommandService_StreamOutputServer) error {
 ```go
 // job_manager.go
 
-import (
-    "bufio"
-)
-
 type JobManager struct {
     jobs     map[string]*Job
     jobMutex sync.Mutex
