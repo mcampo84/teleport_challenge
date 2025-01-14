@@ -174,6 +174,18 @@ type Job struct {
     LogChannels   []chan []byte
     DoneChannel   chan struct{}
     mu            sync.Mutex
+    cond          *sync.Cond
+}
+
+func NewJob(id string) *Job {
+    job := &Job{
+        ID:          id,
+        LogBuffer:   [][]byte{},
+        LogChannels: []chan []byte{},
+        DoneChannel: make(chan struct{}),
+    }
+    job.cond = sync.NewCond(&job.mu)
+    return job
 }
 
 func (j *Job) StreamOutput(stream pb.CommandService_StreamOutputServer) error {
@@ -210,6 +222,10 @@ func (j *Job) StreamOutput(stream pb.CommandService_StreamOutputServer) error {
 ```go
 // job_manager.go
 
+import (
+    "bufio"
+)
+
 type JobManager struct {
     jobs     map[string]*Job
     jobMutex sync.Mutex
@@ -221,12 +237,7 @@ func (jm *JobManager) StartJob(command string, args ...Argument) {
 
     id := uuid.New().String()
 
-    job := &Job{
-        ID:          id,
-        LogBuffer:   [][]byte{},
-        LogChannels: []chan []byte{},
-        DoneChannel: make(chan struct{}),
-    }
+    job := NewJob(id)
     jm.jobs[id] = job
 
     // Initiate job execution and log writing
@@ -264,15 +275,10 @@ func (jm *JobManager) start(job *Job, command string, args ...Argument) {
 }
 
 func (jm *JobManager) logOutput(job *Job, stdout io.ReadCloser) {
-    reader := bufio.NewReader(stdout)
-    for {
-        logLine, err := reader.ReadBytes('\n')
-        if err != nil {
-            if err == io.EOF {
-                break
-            }
-            log.Fatalf("Error reading command output: %v", err)
-        }
+    scanner := bufio.NewScanner(stdout)
+
+    for scanner.Scan() {
+        logLine := scanner.Bytes()
         job.mu.Lock()
 
         // add lines to the LogBuffer, to support new clients requesting an output stream
@@ -283,6 +289,10 @@ func (jm *JobManager) logOutput(job *Job, stdout io.ReadCloser) {
             ch <- logLine
         }
         job.mu.Unlock()
+    }
+
+    if err := scanner.Err(); err != nil {
+        log.Fatalf("Error reading command output: %v", err)
     }
 }
 ```
