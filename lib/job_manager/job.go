@@ -7,8 +7,10 @@ type Job struct {
 	LogBuffer   [][]byte
 	LogChannels []chan []byte
 	DoneChannel chan struct{}
-	mu          sync.Mutex
-	cond        *sync.Cond
+
+	status JobStatus
+	mu     sync.Mutex
+	cond   *sync.Cond
 }
 
 func NewJob(id string) *Job {
@@ -17,12 +19,27 @@ func NewJob(id string) *Job {
 		LogBuffer:   make([][]byte, 0),
 		LogChannels: make([]chan []byte, 0),
 		DoneChannel: make(chan struct{}),
+		status:      JobStatusInitializing,
 	}
 	job.cond = sync.NewCond(&job.mu)
 	return job
 }
 
-func (j *Job) StreamOutput(streamer OutputStreamer) error {
+func (j *Job) SetStatus(status JobStatus) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	j.status = status
+	j.cond.Broadcast()
+}
+
+func (j *Job) GetStatus() JobStatus {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+
+	return j.status
+}
+
+func (j *Job) streamOutput(streamer OutputStreamer) error {
 	// create & add a channel to the Job so we can stream the output as it comes
 	logChannel := make(chan []byte)
 	j.mu.Lock()
