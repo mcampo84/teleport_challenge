@@ -2,11 +2,12 @@ package jobmanager
 
 import (
 	"context"
+	"errors"
+	"io"
+	"log"
 	"os/exec"
 	"sync"
 	"syscall"
-	"log"
-	"io"
 )
 
 type Job struct {
@@ -46,7 +47,7 @@ func (j *Job) Unlock() {
 func (j *Job) SetStatus(status JobStatus) {
 	j.Lock()
 	defer j.Unlock()
-	
+
 	j.status = status
 }
 
@@ -58,31 +59,40 @@ func (j *Job) GetStatus() JobStatus {
 }
 
 func (j *Job) Start(ctx context.Context, command string, args ...string) {
-	j.cmd = exec.CommandContext(ctx, command, args...)
-	stdout, err := j.cmd.StdoutPipe()
-	if err != nil {
-		log.Fatalf("Failed to get stdout pipe: %v", err)
-	}
+	go func() {
+		j.cmd = exec.CommandContext(ctx, command, args...)
+		stdout, err := j.cmd.StdoutPipe()
+		if err != nil {
+			log.Fatalf("Failed to get stdout pipe: %v", err)
+		}
 
-	if err := j.cmd.Start(); err != nil {
-		log.Fatalf("Failed to start command: %v", err)
-	}
+		if err := j.cmd.Start(); err != nil {
+			log.Fatalf("Failed to start command: %v", err)
+		}
 
-	// Update job status
-	j.SetStatus(JobStatusRunning)
+		// Update job status
+		log.Print("Setting job status to running")
+		j.SetStatus(JobStatusRunning)
 
-	// Log command output
-	go j.logOutput(stdout)
+		// Log command output
+		log.Print("Logging command output")
+		go j.logOutput(stdout)
 
-	// Wait for the command to finish
-	if err := j.cmd.Wait(); err != nil {
-		// Update Job Status
-		j.SetStatus(JobStatusError)
+		// Wait for the command to finish
+		if err := j.cmd.Wait(); err != nil {
+			// Update Job Status
+			log.Print("Setting job status to error")
+			j.SetStatus(JobStatusError)
 
-		log.Printf("Command failed: %v", err)
-	}
+			log.Printf("Command failed: %v", err)
+		}
 
-	j.SetDone(JobStatusDone)
+		j.Lock()
+		defer j.Unlock()
+
+		log.Print("Closing job")
+		j.SetDone(JobStatusDone)
+	}()
 }
 
 func (j *Job) SetDone(status JobStatus) {
@@ -91,30 +101,34 @@ func (j *Job) SetDone(status JobStatus) {
 		close(ch)
 	}
 
-	j.LogBuffer = nil
-
 	// close the done channel if not already closed, and set the job status
 	select {
 	case <-j.DoneChannel:
 		// already closed
 	default:
 		close(j.DoneChannel)
-		j.SetStatus(status)
+		// do not call j.SetStatus() here. SetStatus() will lock the mutex, which is already locked.
+		j.status = status
 	}
+
+	j.LogBuffer = nil
 }
 
 func (j *Job) Stop() error {
 	j.Lock()
 	defer j.Unlock()
 
+	// Closing channels to stop logging and streaming of logs
+	j.SetDone(JobStatusDone)
+
 	// Attempt to stop the command if it's running
 	if j.cmd != nil && j.cmd.Process != nil {
+		log.Printf("Sending SIGTERM to process %d", j.cmd.Process.Pid)
 		if err := j.cmd.Process.Signal(syscall.SIGTERM); err != nil {
+			log.Printf("Failed to send SIGTERM: %v", err)
 			return err
 		}
 	}
-
-	j.SetDone(JobStatusDone)
 
 	return nil
 }
@@ -153,6 +167,10 @@ func (j *Job) logOutput(stdout io.ReadCloser) {
 }
 
 func (j *Job) streamOutput(streamer OutputStreamer) error {
+	if j.status != JobStatusRunning {
+		return errors.New("job is not running")
+	}
+
 	// create & add a channel to the Job so we can stream the output as it comes
 	logChannel := make(chan []byte)
 	j.Lock()

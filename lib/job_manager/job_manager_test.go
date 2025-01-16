@@ -142,7 +142,7 @@ func (suite *JobManagerTestSuite) TestStreamOutput_NotRunning() {
 	suite.Require().NoError(err)
 
 	// Wait for the job to complete
-	time.Sleep(1 * time.Second)
+	time.Sleep(time.Second)
 
 	// Try to stream the output
 	err = suite.jobManager.StreamOutput(jobID, nil)
