@@ -3,9 +3,6 @@ package jobmanager
 import (
 	"context"
 	"errors"
-	"io"
-	"log"
-	"os/exec"
 	"sync"
 
 	"github.com/google/uuid"
@@ -45,11 +42,10 @@ func (jm *JobManager) StartJob(ctx context.Context, command string, args ...stri
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
-				job.SetStatus(JobStatusError)
-				log.Printf("Recovered from panic: %v", r)
+				job.SetDone(JobStatusError)
 			}
 		}()
-		jm.start(ctx, job, command, args...)
+		job.Start(ctx, command, args...)
 	}()
 
 	return id, nil
@@ -80,21 +76,7 @@ func (jm *JobManager) StopJob(ctx context.Context, id uuid.UUID) error {
 		return errors.New("job is not running")
 	}
 
-	job.mu.Lock()
-	defer job.mu.Unlock()
-
-	// close the log channels
-	for _, ch := range job.LogChannels {
-		close(ch)
-	}
-
-	// close the log buffer
-	job.LogBuffer = nil
-
-	// close the done channel
-	close(job.DoneChannel)
-
-	return nil
+	return job.Stop()
 }
 
 func (jm *JobManager) GetJobStatus(id uuid.UUID) (JobStatus, error) {
@@ -116,64 +98,4 @@ func (jm *JobManager) getJob(id uuid.UUID) (*Job, error) {
 	}
 
 	return job, nil
-}
-
-// Start a job and update its status as it progresses. Send a signal to all clients when the job is done.
-func (jm *JobManager) start(ctx context.Context, job *Job, command string, args ...string) {
-	cmd := exec.CommandContext(ctx, command, args...)
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		log.Fatalf("Failed to get stdout pipe: %v", err)
-	}
-
-	if err := cmd.Start(); err != nil {
-		log.Fatalf("Failed to start command: %v", err)
-	}
-
-	// Update job status
-	job.SetStatus(JobStatusRunning)
-
-	// Log command output
-	go jm.logOutput(job, stdout)
-
-	// Wait for the command to finish
-	if err := cmd.Wait(); err != nil {
-		// Update Job Status
-		job.SetStatus(JobStatusError)
-
-		log.Fatalf("Command failed: %v", err)
-	}
-
-	// Update job status
-	job.SetStatus(JobStatusDone)
-
-	// Signal job completion
-	close(job.DoneChannel)
-}
-
-func (jm *JobManager) logOutput(job *Job, stdout io.ReadCloser) {
-	buffer := make([]byte, 1024)
-
-	// read the output in 1024-byte chunks, and forward to the log buffer (and all waiting channels)
-	for {
-		n, err := stdout.Read(buffer)
-		if err != nil {
-			if err == io.EOF {
-				break
-			}
-			log.Fatalf("Error reading command output: %v", err)
-		}
-
-		logLine := buffer[:n]
-		job.mu.Lock()
-
-		// add lines to the LogBuffer, to support new clients requesting an output stream
-		job.LogBuffer = append(job.LogBuffer, logLine)
-
-		// for existing clients, send the new log line to the channel for streaming
-		for _, ch := range job.LogChannels {
-			ch <- logLine
-		}
-		job.mu.Unlock()
-	}
 }
