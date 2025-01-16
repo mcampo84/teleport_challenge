@@ -39,14 +39,7 @@ func (jm *JobManager) StartJob(ctx context.Context, command string, args ...stri
 	job := NewJob(id.String())
 	jm.jobs[id.String()] = job
 
-	go func() {
-		defer func() {
-			if r := recover(); r != nil {
-				job.SetDone(JobStatusError)
-			}
-		}()
-		job.Start(ctx, command, args...)
-	}()
+	job.Start(ctx, command, args...)
 
 	return id, nil
 }

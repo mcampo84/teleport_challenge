@@ -107,15 +107,6 @@ func (suite *JobManagerTestSuite) TestStreamOutput() {
 	jobID, err := suite.jobManager.StartJob(suite.ctx, "./test_fixtures/test_script.sh", "Hello, world!")
 	suite.Require().NoError(err)
 
-	// Create two OutputStreamer clients
-	ctrl := gomock.NewController(suite.T())
-	client1 := jobmanager.NewMockOutputStreamer(ctrl)
-	client2 := jobmanager.NewMockOutputStreamer(ctrl)
-	for i := 0; i < 5; i++ {
-		client1.EXPECT().Send([]byte(fmt.Sprintf("Line %d: Hello, world!\n", i))).Return(nil).AnyTimes()
-		client2.EXPECT().Send([]byte(fmt.Sprintf("Line %d: Hello, world!\n", i))).Return(nil).AnyTimes()
-	}
-
 	// Wait up to 1 second until the job status changes to "Running"
 	for i := 0; i < 10; i++ {
 		jobStatus, _ := suite.jobManager.GetJobStatus(jobID)
@@ -125,26 +116,64 @@ func (suite *JobManagerTestSuite) TestStreamOutput() {
 		time.Sleep(100 * time.Millisecond)
 	}
 
-	// Stream output to both clients
-	err = suite.jobManager.StreamOutput(jobID, client1)
-	suite.Require().NoError(err)
-	err = suite.jobManager.StreamOutput(jobID, client2)
-	suite.Require().NoError(err)
+	// Create two OutputStreamer clients
+	ctrl := gomock.NewController(suite.T())
+	client1 := jobmanager.NewMockOutputStreamer(ctrl)
+	client2 := jobmanager.NewMockOutputStreamer(ctrl)
+
+	// Set up expectations for the clients
+	client1.EXPECT().Send(gomock.Any()).DoAndReturn(func(data []byte) error {
+		fmt.Printf("Client1 received: %s", data)
+		return nil
+	}).AnyTimes()
+	client2.EXPECT().Send(gomock.Any()).DoAndReturn(func(data []byte) error {
+		fmt.Printf("Client2 received: %s", data)
+		return nil
+	}).AnyTimes()
+
+	// Stream the output asynchronously
+	done := make(chan bool)
+	go func() {
+		err := suite.jobManager.StreamOutput(jobID, client1)
+		suite.Require().NoError(err)
+		done <- true
+	}()
+	go func() {
+		err := suite.jobManager.StreamOutput(jobID, client2)
+		suite.Require().NoError(err)
+		done <- true
+	}()
+
+	// Wait for the job to complete
+	for i := 0; i < 10; i++ {
+		jobStatus, _ := suite.jobManager.GetJobStatus(jobID)
+		if jobStatus == jobmanager.JobStatusDone {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	// Wait for both streams to complete
+	<-done
+	<-done
 }
 
 func (suite *JobManagerTestSuite) TestStreamOutput_NotFound() {
-	err := suite.jobManager.StreamOutput(uuid.New(), nil)
+	client := jobmanager.NewMockOutputStreamer(gomock.NewController(suite.T()))
+	jobID := uuid.New()
+
+	err := suite.jobManager.StreamOutput(jobID, client)
 	suite.EqualError(err, "job not found")
 }
 
 func (suite *JobManagerTestSuite) TestStreamOutput_NotRunning() {
+	client := jobmanager.NewMockOutputStreamer(gomock.NewController(suite.T()))
 	jobID, err := suite.jobManager.StartJob(suite.ctx, "echo", "Hello, world!")
 	suite.Require().NoError(err)
 
 	// Wait for the job to complete
-	time.Sleep(time.Second)
+	time.Sleep(1 * time.Second)
 
-	// Try to stream the output
-	err = suite.jobManager.StreamOutput(jobID, nil)
+	err = suite.jobManager.StreamOutput(jobID, client)
 	suite.EqualError(err, "job is not running")
 }

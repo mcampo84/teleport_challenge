@@ -19,6 +19,7 @@ type Job struct {
 	status JobStatus
 	mu     sync.Mutex
 	cond   *sync.Cond
+	wg     sync.WaitGroup
 
 	cmd *exec.Cmd
 }
@@ -60,6 +61,11 @@ func (j *Job) GetStatus() JobStatus {
 
 func (j *Job) Start(ctx context.Context, command string, args ...string) {
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				j.SetDone(JobStatusError)
+			}
+		}()
 		j.cmd = exec.CommandContext(ctx, command, args...)
 		stdout, err := j.cmd.StdoutPipe()
 		if err != nil {
@@ -76,6 +82,7 @@ func (j *Job) Start(ctx context.Context, command string, args ...string) {
 
 		// Log command output
 		log.Print("Logging command output")
+		j.wg.Add(1)
 		go j.logOutput(stdout)
 
 		// Wait for the command to finish
@@ -130,10 +137,14 @@ func (j *Job) Stop() error {
 		}
 	}
 
+	// Wait for all goroutines to complete
+	j.wg.Wait()
+
 	return nil
 }
 
 func (j *Job) logOutput(stdout io.ReadCloser) {
+	defer j.wg.Done()
 	buffer := make([]byte, 1024)
 
 	// read the output in 1024-byte chunks, and forward to the log buffer (and all waiting channels)
@@ -188,7 +199,10 @@ func (j *Job) streamOutput(streamer OutputStreamer) error {
 	// Stream new log lines and job completion
 	for {
 		select {
-		case logLine := <-logChannel:
+		case logLine, ok := <-logChannel:
+			if !ok {
+				return nil
+			}
 			if err := streamer.Send(logLine); err != nil {
 				return err
 			}
