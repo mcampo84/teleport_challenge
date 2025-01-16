@@ -13,11 +13,6 @@ type JobTestSuite struct {
 	suite.Suite
 
 	ctx context.Context
-	job *jobmanager.Job
-}
-
-func (suite *JobTestSuite) SetupSuite() {
-	suite.job = jobmanager.NewJob("test-job")
 }
 
 func (suite *JobTestSuite) SetupTest() {
@@ -29,26 +24,29 @@ func TestJob(t *testing.T) {
 }
 
 func (suite *JobTestSuite) TestStart() {
-	suite.job.Start(suite.ctx, "sleep", "1")
-	suite.Equal(jobmanager.JobStatusInitializing, suite.job.GetStatus())
+	job := jobmanager.NewJob("test")
+	job.Start(suite.ctx, "sleep", "1")
+	suite.Equal(jobmanager.JobStatusInitializing, job.GetStatus())
 }
 
 func (suite *JobTestSuite) TestStop() {
-	suite.job.Start(suite.ctx, "sleep", "10")
+	job := jobmanager.NewJob("test")
+	job.Start(suite.ctx, "sleep", "10")
 	time.Sleep(100 * time.Millisecond) // Give the job some time to start
 
-	err := suite.job.Stop()
+	err := job.Stop()
 	suite.NoError(err)
-	suite.Equal(jobmanager.JobStatusDone, suite.job.GetStatus())
+	suite.Equal(jobmanager.JobStatusDone, job.GetStatus())
 }
 
 func (suite *JobTestSuite) TestGetStatus() {
-	suite.job.Start(suite.ctx, "sleep", "2")
-	suite.Equal(jobmanager.JobStatusInitializing, suite.job.GetStatus())
+	job := jobmanager.NewJob("test")
+	job.Start(suite.ctx, "sleep", "2")
+	suite.Equal(jobmanager.JobStatusInitializing, job.GetStatus())
 
 	time.Sleep(time.Second) // Wait for the job to start
-	suite.Equal(jobmanager.JobStatusRunning, suite.job.GetStatus())
+	suite.Equal(jobmanager.JobStatusRunning, job.GetStatus())
 
 	time.Sleep(2 * time.Second) // Wait for the job to complete
-	suite.Equal(jobmanager.JobStatusDone, suite.job.GetStatus())
+	suite.Equal(jobmanager.JobStatusDone, job.GetStatus())
 }

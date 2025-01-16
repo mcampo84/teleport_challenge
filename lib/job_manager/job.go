@@ -47,7 +47,7 @@ func (j *Job) Unlock() {
 func (j *Job) SetStatus(status JobStatus) {
 	j.Lock()
 	defer j.Unlock()
-
+	
 	j.status = status
 }
 
