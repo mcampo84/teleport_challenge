@@ -10,55 +10,90 @@ import (
 	"syscall"
 )
 
+// Job represents a job that can be managed by the job manager.
+// It contains information about the job's ID, log buffers, log channels,
+// and channels to signal when the job is done. It also includes synchronization
+// primitives to manage concurrent access to the job's status and command execution.
+//
+// Fields:
+// - ID: A unique identifier for the job.
+// - LogBuffer: A buffer to store log entries as byte slices.
+// - LogChannels: A list of channels to send log entries to.
+// - DoneChannel: A channel to signal when the job is completed.
+// - status: The current status of the job.
+// - mu: A mutex to protect access to the job's status.
+// - cond: A condition variable to signal changes in the job's status.
+// - wg: A wait group to wait for all goroutines associated with the job to complete.
+// - cmd: The command to be executed by the job.
 type Job struct {
-	ID          string
-	LogBuffer   [][]byte
-	LogChannels []chan []byte
-	DoneChannel chan struct{}
-
-	status JobStatus
-	mu     sync.Mutex
-	cond   *sync.Cond
-	wg     sync.WaitGroup
-
-	cmd *exec.Cmd
+	id          string
+	logBuffer   []byte
+	logChannels []chan []byte
+	doneChannel chan struct{}
+	status      JobStatus
+	mu          sync.Mutex
+	cond        *sync.Cond
+	wg          sync.WaitGroup
+	cmd         *exec.Cmd
 }
 
+// NewJob creates a new Job with the given ID and initializes its fields.
+//
+// Parameters:
+//   - id: The unique identifier for the job.
+//
+// Returns:
+//   - *Job: A new Job instance.
 func NewJob(id string) *Job {
 	job := &Job{
-		ID:          id,
-		LogBuffer:   make([][]byte, 0),
-		LogChannels: make([]chan []byte, 0),
-		DoneChannel: make(chan struct{}),
+		id:          id,
+		logBuffer:   make([]byte, 0),
+		logChannels: make([]chan []byte, 0),
+		doneChannel: make(chan struct{}),
 		status:      JobStatusInitializing,
 	}
 	job.cond = sync.NewCond(&job.mu)
 	return job
 }
 
-func (j *Job) Lock() {
+// lock acquires the mutex lock for the job.
+func (j *Job) lock() {
 	j.mu.Lock()
 }
 
-func (j *Job) Unlock() {
+// unlock releases the mutex lock for the job and broadcasts a condition signal.
+func (j *Job) unlock() {
 	j.mu.Unlock()
 	j.cond.Broadcast()
 }
 
+// SetStatus sets the status of the job.
+//
+// Parameters:
+//   - status: The status to set for the job.
 func (j *Job) SetStatus(status JobStatus) {
-	j.Lock()
-	defer j.Unlock()
-	
+	j.lock()
+	defer j.unlock()
 	j.status = status
 }
 
+// GetStatus returns the current status of the job.
+//
+// Returns:
+//   - JobStatus: The current status of the job.
 func (j *Job) GetStatus() JobStatus {
-	j.Lock()
-	defer j.Unlock()
-
+	j.lock()
+	defer j.unlock()
 	return j.status
 }
 
+// Start begins the execution of the job with the specified command and arguments.
+// It logs the command output and updates the job status accordingly.
+//
+// Parameters:
+//   - ctx: The context to control the job's lifecycle.
+//   - command: The command to be executed
+//   - args: Additional arguments for the command
 func (j *Job) Start(ctx context.Context, command string, args ...string) {
 	go func() {
 		defer func() {
@@ -90,43 +125,47 @@ func (j *Job) Start(ctx context.Context, command string, args ...string) {
 			// Update Job Status
 			log.Print("Setting job status to error")
 			j.SetStatus(JobStatusError)
-
 			log.Printf("Command failed: %v", err)
 		}
 
-		j.Lock()
-		defer j.Unlock()
-
+		j.lock()
+		defer j.unlock()
 		log.Print("Closing job")
 		j.SetDone(JobStatusDone)
 	}()
 }
 
+// SetDone marks the job as done, then closes the log and done channels.
+//
+// Parameters:
+//   - status: The status to set for the job.
 func (j *Job) SetDone(status JobStatus) {
 	// close the log channels if not already closed
-	for _, ch := range j.LogChannels {
+	for _, ch := range j.logChannels {
 		close(ch)
 	}
 
 	// close the done channel if not already closed, and set the job status
 	select {
-	case <-j.DoneChannel:
+	case <-j.doneChannel:
 		// already closed
 	default:
-		close(j.DoneChannel)
+		close(j.doneChannel)
 		// do not call j.SetStatus() here. SetStatus() will lock the mutex, which is already locked.
 		j.status = status
 	}
 
-	j.LogBuffer = nil
+	j.logBuffer = nil
 }
 
+// Stop attempts to stop the job's command if it is running and waits for all goroutines to complete.
+// It closes the log and done channels to stop logging and streaming of logs.
+//
+// Returns:
+//   - error: Any error encountered during the stopping process.
 func (j *Job) Stop() error {
-	j.Lock()
-	defer j.Unlock()
-
-	// Closing channels to stop logging and streaming of logs
-	j.SetDone(JobStatusDone)
+	j.lock()
+	defer j.unlock()
 
 	// Attempt to stop the command if it's running
 	if j.cmd != nil && j.cmd.Process != nil {
@@ -140,9 +179,16 @@ func (j *Job) Stop() error {
 	// Wait for all goroutines to complete
 	j.wg.Wait()
 
+	// Closing channels to stop logging and streaming of logs
+	j.SetDone(JobStatusDone)
+
 	return nil
 }
 
+// logOutput reads the command's stdout and forwards the output to the log buffer and channels.
+//
+// Parameters:
+//   - stdout: The stdout pipe of the command.
 func (j *Job) logOutput(stdout io.ReadCloser) {
 	defer j.wg.Done()
 	buffer := make([]byte, 1024)
@@ -150,10 +196,10 @@ func (j *Job) logOutput(stdout io.ReadCloser) {
 	// read the output in 1024-byte chunks, and forward to the log buffer (and all waiting channels)
 	for {
 		select {
-		case <-j.DoneChannel:
+		case <-j.doneChannel:
 			return
 		default:
-			n, err := stdout.Read(buffer)
+			_, err := stdout.Read(buffer)
 			if err != nil {
 				if err == io.EOF {
 					return
@@ -162,21 +208,28 @@ func (j *Job) logOutput(stdout io.ReadCloser) {
 				return
 			}
 
-			logLine := buffer[:n]
-			j.Lock()
+			logLine := buffer
+			j.lock()
 
 			// add lines to the LogBuffer, to support new clients requesting an output stream
-			j.LogBuffer = append(j.LogBuffer, logLine)
+			j.logBuffer = append(j.logBuffer, logLine...)
 
 			// for existing clients, send the new log line to the channel for streaming
-			for _, ch := range j.LogChannels {
+			for _, ch := range j.logChannels {
 				ch <- logLine
 			}
-			j.Unlock()
+			j.unlock()
 		}
 	}
 }
 
+// streamOutput streams the job's output to the provided OutputStreamer.
+//
+// Parameters:
+//   - streamer: The OutputStreamer to stream output to.
+//
+// Returns:
+//   - error: Any error encountered during the streaming process.
 func (j *Job) streamOutput(streamer OutputStreamer) error {
 	if j.status != JobStatusRunning {
 		return errors.New("job is not running")
@@ -184,15 +237,13 @@ func (j *Job) streamOutput(streamer OutputStreamer) error {
 
 	// create & add a channel to the Job so we can stream the output as it comes
 	logChannel := make(chan []byte)
-	j.Lock()
-	j.LogChannels = append(j.LogChannels, logChannel)
+	j.lock()
+	j.logChannels = append(j.logChannels, logChannel)
 
 	// Stream the existing log buffer
-	for _, logLine := range j.LogBuffer {
-		if err := streamer.Send(logLine); err != nil {
-			j.mu.Unlock()
-			return err
-		}
+	if err := streamer.Send(j.logBuffer); err != nil {
+		j.mu.Unlock()
+		return err
 	}
 	j.mu.Unlock()
 
@@ -206,7 +257,7 @@ func (j *Job) streamOutput(streamer OutputStreamer) error {
 			if err := streamer.Send(logLine); err != nil {
 				return err
 			}
-		case <-j.DoneChannel:
+		case <-j.doneChannel:
 			return nil
 		}
 	}
