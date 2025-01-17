@@ -24,13 +24,13 @@ func TestJob(t *testing.T) {
 }
 
 func (suite *JobTestSuite) TestStart() {
-	job := jobmanager.NewJob("test")
+	job := jobmanager.NewJob()
 	job.Start(suite.ctx, "sleep", "1")
 	suite.Equal(jobmanager.JobStatusInitializing, job.GetStatus())
 }
 
 func (suite *JobTestSuite) TestStop() {
-	job := jobmanager.NewJob("test")
+	job := jobmanager.NewJob()
 	job.Start(suite.ctx, "sleep", "10")
 	time.Sleep(100 * time.Millisecond) // Give the job some time to start
 
@@ -40,7 +40,7 @@ func (suite *JobTestSuite) TestStop() {
 }
 
 func (suite *JobTestSuite) TestGetStatus() {
-	job := jobmanager.NewJob("test")
+	job := jobmanager.NewJob()
 	job.Start(suite.ctx, "sleep", "2")
 	suite.Equal(jobmanager.JobStatusInitializing, job.GetStatus())
 

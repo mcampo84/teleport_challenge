@@ -68,14 +68,12 @@ func (jm *JobManager) StartJob(ctx context.Context, command string, args ...stri
 	jm.jobMutex.Lock()
 	defer jm.jobMutex.Unlock()
 
-	id := uuid.New()
-
-	job := NewJob(id.String())
-	jm.jobs[id.String()] = job
+	job := NewJob()
+	jm.jobs[job.id.String()] = job
 
 	job.Start(ctx, command, args...)
 
-	return id, nil
+	return job.id, nil
 }
 
 // StreamOutput streams the output of a job to the provided OutputStreamer.

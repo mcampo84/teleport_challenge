@@ -8,6 +8,8 @@ import (
 	"os/exec"
 	"sync"
 	"syscall"
+	
+	"github.com/google/uuid"
 )
 
 // Job represents a job that can be managed by the job manager.
@@ -26,7 +28,7 @@ import (
 // - wg: A wait group to wait for all goroutines associated with the job to complete.
 // - cmd: The command to be executed by the job.
 type Job struct {
-	id          string
+	id          uuid.UUID
 	logBuffer   []byte
 	logChannels []chan []byte
 	doneChannel chan struct{}
@@ -39,12 +41,10 @@ type Job struct {
 
 // NewJob creates a new Job with the given ID and initializes its fields.
 //
-// Parameters:
-//   - id: The unique identifier for the job.
-//
 // Returns:
 //   - *Job: A new Job instance.
-func NewJob(id string) *Job {
+func NewJob() *Job {
+	id := uuid.New()
 	job := &Job{
 		id:          id,
 		logBuffer:   make([]byte, 0),
@@ -67,11 +67,11 @@ func (j *Job) unlock() {
 	j.cond.Broadcast()
 }
 
-// SetStatus sets the status of the job.
+// setStatus sets the status of the job.
 //
 // Parameters:
 //   - status: The status to set for the job.
-func (j *Job) SetStatus(status JobStatus) {
+func (j *Job) setStatus(status JobStatus) {
 	j.lock()
 	defer j.unlock()
 	j.status = status
@@ -98,7 +98,7 @@ func (j *Job) Start(ctx context.Context, command string, args ...string) {
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
-				j.SetDone(JobStatusError)
+				j.setDone(JobStatusError)
 			}
 		}()
 		j.cmd = exec.CommandContext(ctx, command, args...)
@@ -113,7 +113,7 @@ func (j *Job) Start(ctx context.Context, command string, args ...string) {
 
 		// Update job status
 		log.Print("Setting job status to running")
-		j.SetStatus(JobStatusRunning)
+		j.setStatus(JobStatusRunning)
 
 		// Log command output
 		log.Print("Logging command output")
@@ -124,32 +124,15 @@ func (j *Job) Start(ctx context.Context, command string, args ...string) {
 		if err := j.cmd.Wait(); err != nil {
 			// Update Job Status
 			log.Print("Setting job status to error")
-			j.SetStatus(JobStatusError)
+			j.setStatus(JobStatusError)
 			log.Printf("Command failed: %v", err)
 		}
 
 		j.lock()
 		defer j.unlock()
 		log.Print("Closing job")
-		j.SetDone(JobStatusDone)
+		j.setDone(JobStatusDone)
 	}()
-}
-
-// SetDone marks the job as done, then closes the log and done channels.
-//
-// Parameters:
-//   - status: The status to set for the job.
-func (j *Job) SetDone(status JobStatus) {
-	// close the done channel if not already closed, and set the job status
-	select {
-	case <-j.doneChannel:
-		// already closed
-	default:
-		close(j.doneChannel)
-
-		// do not call j.SetStatus() here. SetStatus() will lock the mutex, which is already locked.
-		j.status = status
-	}
 }
 
 // Stop attempts to stop the job's command if it is running and waits for all goroutines to complete.
@@ -174,9 +157,26 @@ func (j *Job) Stop() error {
 	j.wg.Wait()
 
 	// Closing channels to stop logging and streaming of logs
-	j.SetDone(JobStatusDone)
+	j.setDone(JobStatusDone)
 
 	return nil
+}
+
+// setDone marks the job as done, then closes the log and done channels.
+//
+// Parameters:
+//   - status: The status to set for the job.
+func (j *Job) setDone(status JobStatus) {
+	// close the done channel if not already closed, and set the job status
+	select {
+	case <-j.doneChannel:
+		// already closed
+	default:
+		close(j.doneChannel)
+
+		// do not call j.SetStatus() here. SetStatus() will lock the mutex, which is already locked.
+		j.status = status
+	}
 }
 
 // logOutput reads the command's stdout and forwards the output to the log buffer and channels.
@@ -247,7 +247,7 @@ func (j *Job) streamOutput(streamer OutputStreamer) error {
 				return err
 			}
 		case <-j.doneChannel:
-			return nil
+			continue
 		}
 	}
 }
