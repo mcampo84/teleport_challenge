@@ -140,22 +140,16 @@ func (j *Job) Start(ctx context.Context, command string, args ...string) {
 // Parameters:
 //   - status: The status to set for the job.
 func (j *Job) SetDone(status JobStatus) {
-	// close the log channels if not already closed
-	for _, ch := range j.logChannels {
-		close(ch)
-	}
-
 	// close the done channel if not already closed, and set the job status
 	select {
 	case <-j.doneChannel:
 		// already closed
 	default:
 		close(j.doneChannel)
+
 		// do not call j.SetStatus() here. SetStatus() will lock the mutex, which is already locked.
 		j.status = status
 	}
-
-	j.logBuffer = nil
 }
 
 // Stop attempts to stop the job's command if it is running and waits for all goroutines to complete.
@@ -195,31 +189,26 @@ func (j *Job) logOutput(stdout io.ReadCloser) {
 
 	// read the output in 1024-byte chunks, and forward to the log buffer (and all waiting channels)
 	for {
-		select {
-		case <-j.doneChannel:
-			return
-		default:
-			_, err := stdout.Read(buffer)
-			if err != nil {
-				if err == io.EOF {
-					return
-				}
-				log.Printf("Error reading command output: %v", err)
+		_, err := stdout.Read(buffer)
+		if err != nil {
+			if err == io.EOF {
 				return
 			}
-
-			logLine := buffer
-			j.lock()
-
-			// add lines to the LogBuffer, to support new clients requesting an output stream
-			j.logBuffer = append(j.logBuffer, logLine...)
-
-			// for existing clients, send the new log line to the channel for streaming
-			for _, ch := range j.logChannels {
-				ch <- logLine
-			}
-			j.unlock()
+			log.Printf("Error reading command output: %v", err)
+			return
 		}
+
+		logLine := buffer
+		j.lock()
+
+		// add lines to the LogBuffer, to support new clients requesting an output stream
+		j.logBuffer = append(j.logBuffer, logLine...)
+
+		// for existing clients, send the new log line to the channel for streaming
+		for _, ch := range j.logChannels {
+			ch <- logLine
+		}
+		j.unlock()
 	}
 }
 
