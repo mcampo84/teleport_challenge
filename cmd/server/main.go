@@ -12,6 +12,9 @@ import (
 
 func main() {
 	app := fx.New(
+		fx.Provide(
+			server.GetDefaultConfig,
+		),
 		server.Module,
 		jobmanager.Module,
 		fx.Invoke(StartGRPCServer),
@@ -24,7 +27,7 @@ func StartGRPCServer(lc fx.Lifecycle, server *server.Server) {
 	lc.Append(fx.Hook{
 		OnStart: func(ctx context.Context) error {
 			go func() {
-				if err := server.Listen(); err != nil {
+				if err := server.StartServer(); err != nil {
 					log.Fatal(err)
 				}
 			}()
