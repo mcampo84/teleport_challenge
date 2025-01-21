@@ -211,7 +211,11 @@ func (j *Job) logOutput(stdout io.ReadCloser) {
 
 		// for existing clients, send the new log line to the channel for streaming
 		for _, ch := range j.logChannels {
-			ch <- logLine
+			select {
+			case ch <- logLine:
+			default:
+				log.Printf("Channel is full, skipping log line")
+			}
 		}
 		j.unlock()
 	}
