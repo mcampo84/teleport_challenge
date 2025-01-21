@@ -191,7 +191,12 @@ func (j *Job) logOutput(stdout io.ReadCloser) {
 	for {
 		_, err := stdout.Read(buffer)
 		if err != nil {
+			// if EOF is reached, we can close the log channels
 			if err == io.EOF {
+				for _, ch := range j.logChannels {
+					close(ch)
+				}
+
 				return
 			}
 			log.Printf("Error reading command output: %v", err)
@@ -228,13 +233,14 @@ func (j *Job) streamOutput(streamer OutputStreamer) error {
 	logChannel := make(chan []byte)
 	j.lock()
 	j.logChannels = append(j.logChannels, logChannel)
+	var logBuffer []byte 
+	copy(logBuffer, j.logBuffer)
+	j.unlock()
 
 	// Stream the existing log buffer
-	if err := streamer.Send(j.logBuffer); err != nil {
-		j.mu.Unlock()
+	if err := streamer.Send(logBuffer); err != nil {
 		return err
 	}
-	j.mu.Unlock()
 
 	// Stream new log lines and job completion
 	for {
@@ -247,7 +253,13 @@ func (j *Job) streamOutput(streamer OutputStreamer) error {
 				return err
 			}
 		case <-j.doneChannel:
-			continue
+			 // Drain the logChannel before returning
+			 for logLine := range logChannel {
+				if err := streamer.Send(logLine); err != nil {
+					return err
+				}
+			}
+			return nil
 		}
 	}
 }

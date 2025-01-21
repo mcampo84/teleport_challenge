@@ -118,31 +118,24 @@ func (suite *JobManagerTestSuite) TestStreamOutput() {
 
 	// Create two OutputStreamer clients
 	ctrl := gomock.NewController(suite.T())
-	client1 := jobmanager.NewMockOutputStreamer(ctrl)
-	client2 := jobmanager.NewMockOutputStreamer(ctrl)
+	
+	streamCount := 20
 
-	// Set up expectations for the clients
-	client1.EXPECT().Send(gomock.Any()).DoAndReturn(func(data []byte) error {
-		fmt.Printf("Client1 received: %s", data)
-		return nil
-	}).AnyTimes()
-	client2.EXPECT().Send(gomock.Any()).DoAndReturn(func(data []byte) error {
-		fmt.Printf("Client2 received: %s", data)
-		return nil
-	}).AnyTimes()
-
-	// Stream the output asynchronously
+	// Stream the output asynchronously across 20 clients
 	done := make(chan bool)
-	go func() {
-		err := suite.jobManager.StreamOutput(jobID, client1)
-		suite.Require().NoError(err)
-		done <- true
-	}()
-	go func() {
-		err := suite.jobManager.StreamOutput(jobID, client2)
-		suite.Require().NoError(err)
-		done <- true
-	}()
+	for _, i := range []int{1, streamCount} {
+		client := jobmanager.NewMockOutputStreamer(ctrl)
+		client.EXPECT().Send(gomock.Any()).DoAndReturn(func(data []byte) error {
+			fmt.Printf("Client1 received: %s", data)
+			return nil
+		}).AnyTimes()
+
+		go func(c jobmanager.OutputStreamer, streamID int) {
+			err := suite.jobManager.StreamOutput(jobID, c)
+			suite.Require().NoError(err, "Client %d", streamID)
+			done <- true
+		}(client, i)
+	}
 
 	// Wait for the job to complete
 	for i := 0; i < 10; i++ {
@@ -154,8 +147,9 @@ func (suite *JobManagerTestSuite) TestStreamOutput() {
 	}
 
 	// Wait for both streams to complete
-	<-done
-	<-done
+	for range []int{1, streamCount} {
+		<-done
+	}
 }
 
 func (suite *JobManagerTestSuite) TestStreamOutput_NotFound() {
