@@ -3,6 +3,7 @@ package jobmanager
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"os/exec"
@@ -205,8 +206,9 @@ func (j *Job) logOutput(stdout io.ReadCloser) {
 		}
 
 		logLine := buffer
-		j.mu.Lock()
+		fmt.Println(logLine)
 
+		j.mu.Lock()
 		// add lines to the LogBuffer, to support new clients requesting an output stream
 		j.logBuffer = append(j.logBuffer, logLine...)
 
