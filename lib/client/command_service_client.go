@@ -4,6 +4,8 @@ package client
 
 import (
 	"context"
+	"fmt"
+	"io"
 
 	"github.com/google/uuid"
 	pb "github.com/mcampo84/teleport_challenge/lib/job_manager/pb/v1"
@@ -41,7 +43,7 @@ func (c *Client) Stop(ctx context.Context, jobId uuid.UUID) (*pb.StopResponse, e
 // Parameters:
 //  - ctx: The context of the request
 //  - jobId: The UUID of the job
-func (c *Client) StreamOutput(ctx context.Context, jobId uuid.UUID, receiver Receiver) error {
+func (c *Client) StreamOutput(ctx context.Context, jobId uuid.UUID) error {
 	req := &pb.StreamOutputRequest{
 		Uuid: jobId.String(),
 	}
@@ -54,12 +56,16 @@ func (c *Client) StreamOutput(ctx context.Context, jobId uuid.UUID, receiver Rec
 
 	for {
 		resp, err := stream.Recv()
-		if err != nil {
+		if err == io.EOF {
+			fmt.Println("")
+			break
+		} else if err != nil {
 			return err
 		}
 
-		if err := receiver.Receive(resp.GetBuffer()); err != nil {
-			return err
-		}
+		fmt.Printf("Part %d: %s\n", resp.Part, resp.Buffer)
 	}
+	
+	return nil
 }
+

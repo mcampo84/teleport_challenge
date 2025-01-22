@@ -27,6 +27,7 @@ func (c *CLI) Start(ctx context.Context) error {
 	fmt.Println("  - stop [job UUID]")
 	fmt.Println("  - status [job UUID]")
 	fmt.Println("  - stream [job UUID]")
+	fmt.Println("  - exit")
 
 	c.awaitInput(ctx)
 
@@ -39,7 +40,8 @@ func (c *CLI) Start(ctx context.Context) error {
 //   - stop [job UUID]
 //   - status [job UUID]
 //   - stream [job UUID]
-func (c *CLI) awaitInput(ctx context.Context) {
+//   - exit
+func (c *CLI) awaitInput(_ context.Context) {
 	reader := bufio.NewReader(os.Stdin)
 
 	for {
@@ -59,13 +61,20 @@ func (c *CLI) awaitInput(ctx context.Context) {
 			continue
 		}
 
+		// Handle the "exit" command
+		if parts[0] == "exit" {
+			fmt.Println("Exiting...")
+			c.client.GracefulStop()
+			os.Exit(0)
+		}
+
 		cmd, err := NewCommand(c.client, parts)
 		if err != nil {
 			fmt.Printf("Error: %s\n", err.Error())
 			continue
 		}
 
-		err = cmd.Execute(ctx)
+		err = cmd.Execute(context.Background())
 		if err != nil {
 			fmt.Printf("Error: %s\n", err.Error())
 			continue

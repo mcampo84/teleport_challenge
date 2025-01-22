@@ -91,7 +91,9 @@ func (j *Job) GetStatus() JobStatus {
 //   - args: Additional arguments for the command
 func (j *Job) Start(ctx context.Context, command string, args ...string) {
 	go func() {
-		j.cmd = exec.CommandContext(ctx, command, args...)
+		// Create a new context without a timeout for command execution
+		cmdCtx := context.Background()
+		j.cmd = exec.CommandContext(cmdCtx, command, args...)
 		stdout, err := j.cmd.StdoutPipe()
 		if err != nil {
 			log.Printf("Failed to get stdout pipe: %v\n", err)
@@ -187,10 +189,12 @@ func (j *Job) logOutput(stdout io.ReadCloser) {
 		if err != nil {
 			// if EOF is reached or the file is closed, we can close the log channels
 			if err == io.EOF || n == 0 {
+				j.mu.Lock()
 				for _, ch := range j.logChannels {
 					close(ch)
 				}
-
+				j.mu.Unlock()
+				j.cond.Broadcast()
 				return
 			}
 			log.Printf("Error reading command output: %v", err)
@@ -199,6 +203,7 @@ func (j *Job) logOutput(stdout io.ReadCloser) {
 
 		logLine := buffer[:n]
 		log.Printf("%s\n", string(logLine))
+
 
 		j.mu.Lock()
 		// add lines to the LogBuffer, to support new clients requesting an output stream
@@ -233,7 +238,7 @@ func (j *Job) streamOutput(streamer OutputStreamer) error {
 	logChannel := make(chan []byte)
 	j.mu.Lock()
 	j.logChannels = append(j.logChannels, logChannel)
-	var logBuffer []byte 
+	logBuffer := make([]byte, len(j.logBuffer))
 	copy(logBuffer, j.logBuffer)
 	j.mu.Unlock()
 

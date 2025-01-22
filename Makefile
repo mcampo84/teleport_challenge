@@ -1,4 +1,4 @@
-.PHONY: certs protos start_server start_client
+.PHONY: certs protos start_server start_client test
 
 certs:
 	zsh scripts/generate_certs.sh
@@ -12,3 +12,6 @@ start_server:
 
 start_client:
 	go run cmd/client/main.go
+
+test:
+	go test ./...

@@ -6,9 +6,10 @@ import (
 	"fmt"
 	"os"
 
-	pb "github.com/mcampo84/teleport_challenge/lib/job_manager/pb/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
+
+	pb "github.com/mcampo84/teleport_challenge/lib/job_manager/pb/v1"
 )
 
 type Client struct {
