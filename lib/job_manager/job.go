@@ -129,13 +129,7 @@ func (j *Job) Start(ctx context.Context, command string, args ...string) {
 		}()
 
 		log.Print("Closing job")
-
-		select {
-		case <-j.doneChannel:
-			// already closed
-		default:
-			j.setDone(JobStatusDone)
-		}
+		j.setDone(JobStatusDone)
 	}()
 }
 
@@ -163,13 +157,8 @@ func (j *Job) Stop() error {
 	// Wait for all goroutines to complete
 	j.wg.Wait()
 
-	select {
-	case <-j.doneChannel:
-		// already closed
-	default:
-		// Closing channels to stop logging and streaming of logs
-		j.setDone(JobStatusDone)
-	}
+	// Closing channels to stop logging and streaming of logs
+	j.setDone(JobStatusDone)
 
 	return nil
 }
