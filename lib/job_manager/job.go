@@ -191,7 +191,7 @@ func (j *Job) logOutput(stdout io.ReadCloser) {
 
 	// read the output in 1024-byte chunks, and forward to the log buffer (and all waiting channels)
 	for {
-		_, err := stdout.Read(buffer)
+		n, err := stdout.Read(buffer)
 		if err != nil {
 			// if EOF is reached, we can close the log channels
 			if err == io.EOF {
@@ -205,8 +205,8 @@ func (j *Job) logOutput(stdout io.ReadCloser) {
 			return
 		}
 
-		logLine := buffer
-		fmt.Println(logLine)
+		logLine := buffer[:n]
+		fmt.Println(string(logLine))
 
 		j.mu.Lock()
 		// add lines to the LogBuffer, to support new clients requesting an output stream
