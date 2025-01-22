@@ -56,24 +56,17 @@ func NewJob() *Job {
 	return job
 }
 
-// lock acquires the mutex lock for the job.
-func (j *Job) lock() {
-	j.mu.Lock()
-}
-
-// unlock releases the mutex lock for the job and broadcasts a condition signal.
-func (j *Job) unlock() {
-	j.mu.Unlock()
-	j.cond.Broadcast()
-}
-
 // setStatus sets the status of the job.
 //
 // Parameters:
 //   - status: The status to set for the job.
 func (j *Job) setStatus(status JobStatus) {
-	j.lock()
-	defer j.unlock()
+	j.mu.Lock()
+	
+	defer func() {
+		j.mu.Unlock()
+		j.cond.Broadcast()
+	}()
 	j.status = status
 }
 
@@ -82,8 +75,9 @@ func (j *Job) setStatus(status JobStatus) {
 // Returns:
 //   - JobStatus: The current status of the job.
 func (j *Job) GetStatus() JobStatus {
-	j.lock()
-	defer j.unlock()
+	j.mu.Lock()
+	defer j.mu.Unlock()
+
 	return j.status
 }
 
@@ -128,8 +122,12 @@ func (j *Job) Start(ctx context.Context, command string, args ...string) {
 			log.Printf("Command failed: %v", err)
 		}
 
-		j.lock()
-		defer j.unlock()
+		j.mu.Lock()
+		defer func() {
+			j.mu.Unlock()
+			j.cond.Broadcast()
+		}()
+
 		log.Print("Closing job")
 		j.setDone(JobStatusDone)
 	}()
@@ -141,8 +139,11 @@ func (j *Job) Start(ctx context.Context, command string, args ...string) {
 // Returns:
 //   - error: Any error encountered during the stopping process.
 func (j *Job) Stop() error {
-	j.lock()
-	defer j.unlock()
+	j.mu.Lock()
+	defer func() {
+		j.mu.Unlock()
+		j.cond.Broadcast()
+	}()
 
 	// Attempt to stop the command if it's running
 	if j.cmd != nil && j.cmd.Process != nil {
@@ -204,7 +205,7 @@ func (j *Job) logOutput(stdout io.ReadCloser) {
 		}
 
 		logLine := buffer
-		j.lock()
+		j.mu.Lock()
 
 		// add lines to the LogBuffer, to support new clients requesting an output stream
 		j.logBuffer = append(j.logBuffer, logLine...)
@@ -217,7 +218,8 @@ func (j *Job) logOutput(stdout io.ReadCloser) {
 				log.Printf("Channel is full, skipping log line")
 			}
 		}
-		j.unlock()
+		j.mu.Unlock()
+		j.cond.Broadcast()
 	}
 }
 
@@ -235,11 +237,11 @@ func (j *Job) streamOutput(streamer OutputStreamer) error {
 
 	// create & add a channel to the Job so we can stream the output as it comes
 	logChannel := make(chan []byte)
-	j.lock()
+	j.mu.Lock()
 	j.logChannels = append(j.logChannels, logChannel)
 	var logBuffer []byte 
 	copy(logBuffer, j.logBuffer)
-	j.unlock()
+	j.mu.Unlock()
 
 	// Stream the existing log buffer
 	if err := streamer.Send(logBuffer); err != nil {
