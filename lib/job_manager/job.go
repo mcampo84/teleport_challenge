@@ -229,7 +229,7 @@ func (j *Job) logOutput(stdout io.ReadCloser) {
 //
 // Returns:
 //   - error: Any error encountered during the streaming process.
-func (j *Job) streamOutput(streamer OutputStreamer) error {
+func (j *Job) streamOutput(ctx context.Context, streamer OutputStreamer) error {
 	if j.status != JobStatusRunning {
 		return errors.New("job is not running")
 	}
@@ -242,8 +242,13 @@ func (j *Job) streamOutput(streamer OutputStreamer) error {
 	copy(logBuffer, j.logBuffer)
 	j.mu.Unlock()
 
+	if err := ctx.Err(); err != nil {
+		fmt.Printf("Context error before sending to streamer: %v\n", err)
+		return err
+	}
+
 	// Stream the existing log buffer
-	if err := streamer.Send(logBuffer); err != nil {
+	if err := streamer.Send(ctx, logBuffer); err != nil {
 		return err
 	}
 
@@ -254,13 +259,13 @@ func (j *Job) streamOutput(streamer OutputStreamer) error {
 			if !ok {
 				return nil
 			}
-			if err := streamer.Send(logLine); err != nil {
+			if err := streamer.Send(ctx, logLine); err != nil {
 				return err
 			}
 		case <-j.doneChannel:
 			 // Drain the logChannel before returning
 			 for logLine := range logChannel {
-				if err := streamer.Send(logLine); err != nil {
+				if err := streamer.Send(ctx, logLine); err != nil {
 					return err
 				}
 			}

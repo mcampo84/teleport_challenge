@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"fmt"
 
 	pb "github.com/mcampo84/teleport_challenge/lib/job_manager/pb/v1"
@@ -15,13 +16,24 @@ func NewStreamingServerAdapter(streamingServer pb.CommandService_StreamOutputSer
 	return &StreamingServerAdapter{part: 0, streamingServer: streamingServer}
 }
 
-func (s *StreamingServerAdapter) Send(output []byte) error {
+func (s *StreamingServerAdapter) Send(ctx context.Context, output []byte) error {
 	s.part++
 
 	fmt.Printf("Received %s as part %d\n", output, s.part)
 
-	return s.streamingServer.Send(&pb.StreamOutputResponse{
+	if ctx.Err() != nil {
+		fmt.Printf("Context error before sending part %d: %v\n", s.part, ctx.Err())
+		return ctx.Err()
+	}
+
+	err := s.streamingServer.Send(&pb.StreamOutputResponse{
 		Part: s.part,
 		Buffer: output,
 	})
+	if err != nil {
+		fmt.Printf("Error sending part %d: %v\n", s.part, err)
+		return err
+	}
+
+	return nil
 }

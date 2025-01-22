@@ -107,6 +107,8 @@ func (suite *JobManagerTestSuite) TestStreamOutput() {
 	jobID, err := suite.jobManager.StartJob(suite.ctx, "./test_fixtures/test_script.sh", "Hello, world!")
 	suite.Require().NoError(err)
 
+	ctx := context.Background()
+
 	// Wait up to 1 second until the job status changes to "Running"
 	for i := 0; i < 10; i++ {
 		jobStatus, _ := suite.jobManager.GetJobStatus(jobID)
@@ -125,13 +127,13 @@ func (suite *JobManagerTestSuite) TestStreamOutput() {
 	done := make(chan bool)
 	for _, i := range []int{1, streamCount} {
 		client := jobmanager.NewMockOutputStreamer(ctrl)
-		client.EXPECT().Send(gomock.Any()).DoAndReturn(func(data []byte) error {
+		client.EXPECT().Send(gomock.Any(), gomock.Any()).DoAndReturn(func(data []byte) error {
 			fmt.Printf("Client1 received: %s", data)
 			return nil
 		}).AnyTimes()
 
 		go func(c jobmanager.OutputStreamer, streamID int) {
-			err := suite.jobManager.StreamOutput(jobID, c)
+			err := suite.jobManager.StreamOutput(ctx, jobID, c)
 			suite.Require().NoError(err, "Client %d", streamID)
 			done <- true
 		}(client, i)
@@ -153,14 +155,16 @@ func (suite *JobManagerTestSuite) TestStreamOutput() {
 }
 
 func (suite *JobManagerTestSuite) TestStreamOutput_NotFound() {
+	ctx := context.Background()
 	client := jobmanager.NewMockOutputStreamer(gomock.NewController(suite.T()))
 	jobID := uuid.New()
 
-	err := suite.jobManager.StreamOutput(jobID, client)
+	err := suite.jobManager.StreamOutput(ctx, jobID, client)
 	suite.EqualError(err, "job not found")
 }
 
 func (suite *JobManagerTestSuite) TestStreamOutput_NotRunning() {
+	ctx := context.Background()
 	client := jobmanager.NewMockOutputStreamer(gomock.NewController(suite.T()))
 	jobID, err := suite.jobManager.StartJob(suite.ctx, "echo", "Hello, world!")
 	suite.Require().NoError(err)
@@ -168,6 +172,6 @@ func (suite *JobManagerTestSuite) TestStreamOutput_NotRunning() {
 	// Wait for the job to complete
 	time.Sleep(1 * time.Second)
 
-	err = suite.jobManager.StreamOutput(jobID, client)
+	err = suite.jobManager.StreamOutput(ctx, jobID, client)
 	suite.EqualError(err, "job is not running")
 }

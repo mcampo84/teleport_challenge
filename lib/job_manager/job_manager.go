@@ -6,6 +6,7 @@ package jobmanager
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 
 	"github.com/google/uuid"
@@ -92,7 +93,7 @@ func (jm *JobManager) StartJob(ctx context.Context, command string, args ...stri
 //
 // Returns:
 //   - error: Any error encountered during the streaming process.
-func (jm *JobManager) StreamOutput(id uuid.UUID, streamer OutputStreamer) error {
+func (jm *JobManager) StreamOutput(ctx context.Context, id uuid.UUID, streamer OutputStreamer) error {
 	job, err := jm.getJob(id)
 	if err != nil {
 		return err
@@ -102,7 +103,17 @@ func (jm *JobManager) StreamOutput(id uuid.UUID, streamer OutputStreamer) error 
 		return errors.New("job is not running")
 	}
 
-	go job.streamOutput(streamer)
+	if err := ctx.Err(); err != nil {
+		fmt.Printf("Context error before starting output stream: %v\n", err)
+		return err
+	}
+
+	go func() {
+		streamCtx, cancel := context.WithCancel(ctx)
+		defer cancel()
+		
+		job.streamOutput(streamCtx, streamer)
+	}()
 
 	return nil
 }

@@ -40,7 +40,7 @@ func NewServer(config Config, jobManager *jobmanager.JobManager) (*Server, error
 func (s *Server) setup() error {
 	// Load server certificate and key
 	cert, err := tls.LoadX509KeyPair(s.config.CertFile, s.config.KeyFile)
-	if err != nil {
+	if (err != nil) {
 		return fmt.Errorf("failed to load server certificate: %v", err)
 	}
 
@@ -169,12 +169,18 @@ func (s *Server) StreamOutput(req *pb.StreamOutputRequest, streamingServer pb.Co
 
 	stream := NewStreamingServerAdapter(streamingServer)
 
-	err := s.jobManager.StreamOutput(req.UuidFromUuid(), stream)
-	if err != nil {
-		// Convert the error to a include a grpc status and return it
-		return status.Error(codes.Internal, err.Error())
+	ctx := streamingServer.Context()
+	if ctx.Err() != nil {
+		log.Printf("Context error before starting stream for job %s: %v", req.Uuid, ctx.Err())
+		return status.Error(codes.Canceled, "context canceled")
 	}
 
+	err := s.jobManager.StreamOutput(ctx, req.UuidFromUuid(), stream)
+	if err != nil {
+		log.Printf("Error streaming output for job %s: %v", req.Uuid, err)
+	}
+
+	log.Println("Successfully started streaming output for job:", req.Uuid)
 	return nil
 }
 
