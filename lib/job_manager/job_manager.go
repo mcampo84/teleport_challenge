@@ -23,6 +23,12 @@ const (
 	JobStatusStopped      JobStatus = "stopped"
 )
 
+var FinalStates = []JobStatus{
+	JobStatusDone,
+	JobStatusError,
+	JobStatusStopped,
+}
+
 // String returns the string representation of a JobStatus.
 //
 // Returns:

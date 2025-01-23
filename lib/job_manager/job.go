@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 	"os/exec"
+	"slices"
 	"sync"
 
 	"github.com/google/uuid"
@@ -113,33 +114,18 @@ func (j *Job) Start(ctx context.Context, command string, args ...string) {
 
 		// Wait for the command to finish
 		if err := j.cmd.Wait(); err != nil {
-			j.mu.Lock()
-
-			// if the job has been stopped, we don't want to report an error
-			if j.status != JobStatusStopped {
+			if j.GetStatus() != JobStatusStopped {
 				log.Printf("Command failed: %v", err)
-				// Update Job Status
-				j.setDone(JobStatusError)
 			}
-
-			j.mu.Unlock()
+			// Update Job Status
+			j.setDone(JobStatusError)
 		}
 
 		// wait for logOutput to finish
 		j.wg.Wait()
 
-		status := j.GetStatus()
-		
-		// if the job hasn't reached a finished state, close it out
-		if status == JobStatusInitializing || status == JobStatusRunning {
-			j.mu.Lock()
-			defer func() {
-				j.mu.Unlock()
-			}()
-
-			log.Print("Closing job")
-			j.setDone(JobStatusDone)
-		}
+		log.Print("Closing job")
+		j.setDone(JobStatusDone)
 	}()
 }
 
@@ -149,11 +135,6 @@ func (j *Job) Start(ctx context.Context, command string, args ...string) {
 // Returns:
 //   - error: Any error encountered during the stopping process.
 func (j *Job) Stop() error {
-	j.mu.Lock()
-	defer func() {
-		j.mu.Unlock()
-	}()
-
 	// Attempt to stop the command if it's running
 	if j.cmd != nil && j.cmd.Process != nil {
 		log.Printf("Sending SIGTERM to process %d", j.cmd.Process.Pid)
@@ -174,6 +155,12 @@ func (j *Job) Stop() error {
 // Parameters:
 //   - status: The status to set for the job.
 func (j *Job) setDone(status JobStatus) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+
+	// do nothing if the job is in a final state
+	if slices.Contains(FinalStates, j.status) { return }
+	
 	// close the done channel if not already closed, and set the job status
 	select {
 	case <-j.doneChannel:
