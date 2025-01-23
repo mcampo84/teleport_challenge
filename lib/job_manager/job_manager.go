@@ -117,6 +117,10 @@ func (jm *JobManager) StreamOutput(ctx context.Context, id uuid.UUID, streamer O
 		if err != nil {
 			log.Printf("Error streaming output for job %s: %v\n", id, err)
 		}
+
+		if err := streamCtx.Err(); err != nil {
+			log.Printf("Context error after streaming output: %v\n", err)
+		}
 	}()
 
 	return nil

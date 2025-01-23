@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"log"
 
 	"github.com/google/uuid"
 	"github.com/mcampo84/teleport_challenge/lib/client"
@@ -18,6 +19,10 @@ const (
 
 type Command interface {
 	Execute(context.Context) error
+}
+
+type BaseCommand struct {
+	client *client.Client
 }
 
 func NewCommand(client *client.Client, input []string) (_ Command, err error) {
@@ -38,7 +43,7 @@ func NewCommand(client *client.Client, input []string) (_ Command, err error) {
 		args = input[2:]
 	}
 
-	fmt.Printf("Directive: %s, Command: %s, Args: %v\n", directive, command, args)
+	log.Printf("Directive: %s, Command: %s, Args: %v", directive, command, args)
 
 	switch string(input[0]) {
 	case commandStart:

@@ -2,22 +2,24 @@ package cli
 
 import (
 	"context"
-	"fmt"
+	"log"
 
 	"github.com/google/uuid"
 	"github.com/mcampo84/teleport_challenge/lib/client"
 )
 
 type StopCommand struct {
-	jobId uuid.UUID
+	BaseCommand
 
-	client *client.Client
+	jobId uuid.UUID
 }
 
 func NewStopCommand(client *client.Client, jobId uuid.UUID) *StopCommand {
 	return &StopCommand{
-		client: client,
-		jobId:  jobId,
+		BaseCommand: BaseCommand{
+			client: client,
+		},
+		jobId: jobId,
 	}
 }
 
@@ -28,7 +30,7 @@ func (c *StopCommand) Execute(ctx context.Context) (err error) {
 	}
 
 	// Print the job ID to the console.
-	fmt.Printf("Job ID %s successfully stopped.\n", c.jobId.String())
+	log.Printf("Job ID %s successfully stopped.\n", c.jobId)
 
 	return nil
 }

@@ -2,7 +2,6 @@ package jobmanager
 
 import (
 	"context"
-	"errors"
 	"io"
 	"log"
 	"os/exec"
@@ -234,20 +233,19 @@ func (j *Job) logOutput(stdout io.ReadCloser) {
 // Returns:
 //   - error: Any error encountered during the streaming process.
 func (j *Job) streamOutput(ctx context.Context, streamer OutputStreamer) error {
-	if j.status != JobStatusRunning {
-		return errors.New("job is not running")
-	}
-
 	// create & add a channel to the Job so we can stream the output as it comes
 	logChannel := make(chan []byte)
+	j.addLogChannel(logChannel)
+
 	j.mu.Lock()
-	j.logChannels = append(j.logChannels, logChannel)
 	logBuffer := make([]byte, len(j.logBuffer))
 	copy(logBuffer, j.logBuffer)
 	j.mu.Unlock()
 
 	if err := ctx.Err(); err != nil {
 		log.Printf("Context error before sending to streamer: %v\n", err)
+		j.removeLogChannel(logChannel)
+		
 		return err
 	}
 
@@ -275,6 +273,23 @@ func (j *Job) streamOutput(ctx context.Context, streamer OutputStreamer) error {
 				}
 			}
 			return nil
+		}
+	}
+}
+
+func (j *Job) addLogChannel(logChannel chan []byte) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+
+	j.logChannels = append(j.logChannels, logChannel)
+}
+
+func (j *Job) removeLogChannel(logChannel chan []byte) {
+	for i, ch := range j.logChannels {
+		if ch == logChannel {
+			j.logChannels = append(j.logChannels[:i], j.logChannels[i+1:]...)
+			close(ch)
+			break
 		}
 	}
 }

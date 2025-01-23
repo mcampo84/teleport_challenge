@@ -2,20 +2,23 @@ package cli
 
 import (
 	"context"
-	"fmt"
+	"log"
 
 	"github.com/google/uuid"
 	"github.com/mcampo84/teleport_challenge/lib/client"
 )
 
 type StatusCommand struct {
-	jobId  uuid.UUID
-	client *client.Client
+	BaseCommand
+
+	jobId uuid.UUID
 }
 
 func NewStatusCommand(client *client.Client, jobId uuid.UUID) *StatusCommand {
 	return &StatusCommand{
-		client: client,
+		BaseCommand: BaseCommand{
+			client: client,
+		},
 		jobId: jobId,
 	}
 }
@@ -27,7 +30,7 @@ func (c *StatusCommand) Execute(ctx context.Context) error {
 	}
 
 	// Print the job status to the console.
-	fmt.Printf("Job ID: %s\nStatus: %s\n", c.jobId, resp.Status)
+	log.Printf("Job ID: %s\nStatus: %s\n", c.jobId, resp.Status)
 
 	return nil
 }

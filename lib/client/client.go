@@ -6,6 +6,7 @@ import (
 	"crypto/x509"
 	"fmt"
 	"io"
+	"log"
 	"os"
 
 	"github.com/google/uuid"
@@ -29,7 +30,7 @@ func NewClient(config Config) (*Client, error) {
 	if err := c.setup(); err != nil {
 		return nil, err
 	}
-	
+
 	return c, nil
 }
 
@@ -99,18 +100,16 @@ func (c *Client) Stop(ctx context.Context, jobId uuid.UUID) (*pb.StopResponse, e
 // StreamOutput takes a job UUID and streams the output to the receiver by calling the StreamOutput RPC method on the server.
 //
 // Parameters:
-//  - ctx: The context of the request
-//  - jobId: The UUID of the job
+//   - ctx: The context of the request
+//   - jobId: The UUID of the job
 func (c *Client) StreamOutput(ctx context.Context, jobId uuid.UUID) error {
+	log.Printf("Streaming output for job %s", jobId)
 	req := &pb.StreamOutputRequest{
 		Uuid: jobId.String(),
 	}
 
-	streamCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
 	// Send each line of output to the receiver as it is received, until the stream is closed.
-	stream, err := c.client.StreamOutput(streamCtx, req)
+	stream, err := c.client.StreamOutput(ctx, req)
 	if err != nil {
 		return err
 	}
@@ -118,14 +117,17 @@ func (c *Client) StreamOutput(ctx context.Context, jobId uuid.UUID) error {
 	for {
 		resp, err := stream.Recv()
 		if err == io.EOF {
-			fmt.Println("")
+			log.Println("EOF reached")
 			break
-		} else if err != nil {
+		}
+		if err != nil {
+			log.Printf("Error: %v\n", err)
+
 			return err
 		}
 
-		fmt.Printf("Part %d: %s\n", resp.Part, resp.Buffer)
+		log.Printf("Part %d: %s\n", resp.Part, resp.Buffer)
 	}
-	
-	return nil
+
+	return stream.CloseSend()
 }

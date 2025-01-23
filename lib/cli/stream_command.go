@@ -9,19 +9,23 @@ import (
 )
 
 type StreamCommand struct {
-	jobId  uuid.UUID
-	client *client.Client
+	BaseCommand
+
+	jobId uuid.UUID
 }
 
 func NewStreamCommand(client *client.Client, jobId uuid.UUID) *StreamCommand {
 	return &StreamCommand{
-		client: client,
-		jobId:  jobId,
+		BaseCommand: BaseCommand{
+			client: client,
+		},
+		jobId: jobId,
 	}
 }
 
 func (c *StreamCommand) Execute(ctx context.Context) (err error) {
 	err = c.client.StreamOutput(ctx, c.jobId)
+
 	if err != nil {
 		return err
 	}
