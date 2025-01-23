@@ -163,9 +163,6 @@ func (j *Job) Stop() error {
 		}
 	}
 
-	// Wait for all goroutines to complete
-	j.wg.Wait()
-
 	// Closing channels to stop logging and streaming of logs
 	j.setDone(JobStatusStopped)
 
