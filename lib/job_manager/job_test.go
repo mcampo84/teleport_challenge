@@ -36,7 +36,7 @@ func (suite *JobTestSuite) TestStop() {
 
 	err := job.Stop()
 	suite.NoError(err)
-	suite.Equal(jobmanager.JobStatusDone, job.GetStatus())
+	suite.Equal(jobmanager.JobStatusStopped, job.GetStatus())
 }
 
 func (suite *JobTestSuite) TestGetStatus() {

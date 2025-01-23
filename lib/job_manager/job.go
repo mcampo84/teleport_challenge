@@ -3,13 +3,11 @@ package jobmanager
 import (
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"log"
 	"os/exec"
 	"sync"
-	"syscall"
-	
+
 	"github.com/google/uuid"
 )
 
@@ -62,6 +60,7 @@ func NewJob() *Job {
 // Parameters:
 //   - status: The status to set for the job.
 func (j *Job) setStatus(status JobStatus) {
+	log.Printf("Setting job status to %s\n", status)
 	j.mu.Lock()
 	
 	defer func() {
@@ -91,23 +90,20 @@ func (j *Job) GetStatus() JobStatus {
 //   - args: Additional arguments for the command
 func (j *Job) Start(ctx context.Context, command string, args ...string) {
 	go func() {
-		defer func() {
-			if r := recover(); r != nil {
-				j.setDone(JobStatusError)
-			}
-		}()
 		j.cmd = exec.CommandContext(ctx, command, args...)
 		stdout, err := j.cmd.StdoutPipe()
 		if err != nil {
-			log.Fatalf("Failed to get stdout pipe: %v", err)
+			log.Printf("Failed to get stdout pipe: %v\n", err)
+			return
 		}
 
 		if err := j.cmd.Start(); err != nil {
-			log.Fatalf("Failed to start command: %v", err)
+			log.Printf("Failed to start command: %v\n", err)
+			j.setDone(JobStatusError)
+			return
 		}
 
 		// Update job status
-		log.Print("Setting job status to running")
 		j.setStatus(JobStatusRunning)
 
 		// Log command output
@@ -117,20 +113,33 @@ func (j *Job) Start(ctx context.Context, command string, args ...string) {
 
 		// Wait for the command to finish
 		if err := j.cmd.Wait(); err != nil {
-			// Update Job Status
-			log.Print("Setting job status to error")
-			j.setStatus(JobStatusError)
-			log.Printf("Command failed: %v", err)
+			j.mu.Lock()
+
+			// if the job has been stopped, we don't want to report an error
+			if j.status != JobStatusStopped {
+				log.Printf("Command failed: %v", err)
+				// Update Job Status
+				j.setDone(JobStatusError)
+			}
+
+			j.mu.Unlock()
 		}
 
-		j.mu.Lock()
-		defer func() {
-			j.mu.Unlock()
-			j.cond.Broadcast()
-		}()
+		// wait for logOutput to finish
+		j.wg.Wait()
 
-		log.Print("Closing job")
-		j.setDone(JobStatusDone)
+		status := j.GetStatus()
+		
+		// if the job hasn't reached a finished state, close it out
+		if status == JobStatusInitializing || status == JobStatusRunning {
+			j.mu.Lock()
+			defer func() {
+				j.mu.Unlock()
+			}()
+
+			log.Print("Closing job")
+			j.setDone(JobStatusDone)
+		}
 	}()
 }
 
@@ -143,13 +152,12 @@ func (j *Job) Stop() error {
 	j.mu.Lock()
 	defer func() {
 		j.mu.Unlock()
-		j.cond.Broadcast()
 	}()
 
 	// Attempt to stop the command if it's running
 	if j.cmd != nil && j.cmd.Process != nil {
 		log.Printf("Sending SIGTERM to process %d", j.cmd.Process.Pid)
-		if err := j.cmd.Process.Signal(syscall.SIGTERM); err != nil {
+		if err := j.cmd.Process.Kill(); err != nil {
 			log.Printf("Failed to send SIGTERM: %v", err)
 			return err
 		}
@@ -159,7 +167,7 @@ func (j *Job) Stop() error {
 	j.wg.Wait()
 
 	// Closing channels to stop logging and streaming of logs
-	j.setDone(JobStatusDone)
+	j.setDone(JobStatusStopped)
 
 	return nil
 }
@@ -193,8 +201,8 @@ func (j *Job) logOutput(stdout io.ReadCloser) {
 	for {
 		n, err := stdout.Read(buffer)
 		if err != nil {
-			// if EOF is reached, we can close the log channels
-			if err == io.EOF {
+			// if EOF is reached or the file is closed, we can close the log channels
+			if err == io.EOF || n == 0 {
 				for _, ch := range j.logChannels {
 					close(ch)
 				}
@@ -206,7 +214,7 @@ func (j *Job) logOutput(stdout io.ReadCloser) {
 		}
 
 		logLine := buffer[:n]
-		fmt.Println(string(logLine))
+		log.Printf("%s\n", string(logLine))
 
 		j.mu.Lock()
 		// add lines to the LogBuffer, to support new clients requesting an output stream

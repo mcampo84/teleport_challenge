@@ -82,7 +82,7 @@ func (suite *JobManagerTestSuite) TestStopJob() {
 	// Verify the job status is "Done"
 	status, err := suite.jobManager.GetJobStatus(jobID)
 	suite.Require().NoError(err)
-	suite.Equal(jobmanager.JobStatusDone, status)
+	suite.Equal(jobmanager.JobStatusStopped, status)
 }
 
 func (suite *JobManagerTestSuite) TestStopJob_NotFound() {

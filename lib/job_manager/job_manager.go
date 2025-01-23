@@ -1,5 +1,5 @@
-// Package jobmanager provides a high-level interface for managing jobs. 
-// It includes a JobManager type that keeps track of all jobs and provides methods for starting, stopping, and checking the status of jobs. 
+// Package jobmanager provides a high-level interface for managing jobs.
+// It includes a JobManager type that keeps track of all jobs and provides methods for starting, stopping, and checking the status of jobs.
 // It also includes a JobStatus type that represents the status of a job, and an OutputStreamer interface for streaming output to a client.
 package jobmanager
 
@@ -13,12 +13,14 @@ import (
 
 // JobStatus represents the status of a job.
 type JobStatus string
+
 const (
 	JobStatusInitializing JobStatus = "initializing"
 	JobStatusRunning      JobStatus = "running"
 	JobStatusDone         JobStatus = "done"
 	JobStatusError        JobStatus = "error"
 	JobStatusNotFound     JobStatus = "not found"
+	JobStatusStopped      JobStatus = "stopped"
 )
 
 // String returns the string representation of a JobStatus.
@@ -29,7 +31,7 @@ func (js JobStatus) String() string {
 	return string(js)
 }
 
-// JobManager is the high-level interface for managing jobs. 
+// JobManager is the high-level interface for managing jobs.
 // It keeps track of all jobs and provides methods for starting, stopping, and checking the status of jobs.
 //
 // Fields:
