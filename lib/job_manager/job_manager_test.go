@@ -127,7 +127,7 @@ func (suite *JobManagerTestSuite) TestStreamOutput() {
 	done := make(chan bool)
 	for _, i := range []int{1, streamCount} {
 		client := jobmanager.NewMockOutputStreamer(ctrl)
-		client.EXPECT().Send(gomock.Any(), gomock.Any()).DoAndReturn(func(data []byte) error {
+		client.EXPECT().Send(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, data []byte) error {
 			fmt.Printf("Client1 received: %s", data)
 			return nil
 		}).AnyTimes()

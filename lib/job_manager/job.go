@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"slices"
 	"sync"
+	"syscall"
 
 	"github.com/google/uuid"
 )
@@ -139,8 +140,7 @@ func (j *Job) Start(ctx context.Context, command string, args ...string) {
 func (j *Job) Stop() error {
 	// Attempt to stop the command if it's running
 	if j.cmd != nil && j.cmd.Process != nil {
-		log.Printf("Sending SIGTERM to process %d", j.cmd.Process.Pid)
-		if err := j.cmd.Process.Kill(); err != nil {
+		if err := j.cmd.Process.Signal(syscall.SIGTERM); err != nil {
 			log.Printf("Failed to send SIGTERM: %v", err)
 			return err
 		}
@@ -180,7 +180,10 @@ func (j *Job) setDone(status JobStatus) {
 // Parameters:
 //   - stdout: The stdout pipe of the command.
 func (j *Job) logOutput(stdout io.ReadCloser) {
-	defer j.wg.Done()
+	defer func() {
+		j.wg.Done()
+		log.Println("logging complete")
+	}()
 	buffer := make([]byte, 1024)
 
 	// read the output in 1024-byte chunks, and forward to the log buffer (and all waiting channels)
@@ -202,7 +205,6 @@ func (j *Job) logOutput(stdout io.ReadCloser) {
 		}
 
 		logLine := buffer[:n]
-		log.Printf("%s\n", string(logLine))
 
 		j.mu.Lock()
 		// add lines to the LogBuffer, to support new clients requesting an output stream
@@ -242,7 +244,7 @@ func (j *Job) streamOutput(ctx context.Context, streamer OutputStreamer) error {
 	j.mu.Unlock()
 
 	if err := ctx.Err(); err != nil {
-		fmt.Printf("Context error before sending to streamer: %v\n", err)
+		log.Printf("Context error before sending to streamer: %v\n", err)
 		return err
 	}
 
