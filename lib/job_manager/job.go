@@ -204,7 +204,6 @@ func (j *Job) logOutput(stdout io.ReadCloser) {
 		logLine := buffer[:n]
 		log.Printf("%s\n", string(logLine))
 
-
 		j.mu.Lock()
 		// add lines to the LogBuffer, to support new clients requesting an output stream
 		j.logBuffer = append(j.logBuffer, logLine...)
@@ -248,6 +247,7 @@ func (j *Job) streamOutput(ctx context.Context, streamer OutputStreamer) error {
 	}
 
 	// Stream the existing log buffer
+	log.Printf("Sending log buffer for job %s", j.id)
 	if err := streamer.Send(ctx, logBuffer); err != nil {
 		return err
 	}

@@ -111,8 +111,12 @@ func (jm *JobManager) StreamOutput(ctx context.Context, id uuid.UUID, streamer O
 	go func() {
 		streamCtx, cancel := context.WithCancel(ctx)
 		defer cancel()
-		
-		job.streamOutput(streamCtx, streamer)
+
+		fmt.Printf("Starting streamOutput for job %s\n", id)
+		err := job.streamOutput(streamCtx, streamer)
+		if err != nil {
+			fmt.Printf("Error streaming output for job %s: %v\n", id, err)
+		}
 	}()
 
 	return nil
