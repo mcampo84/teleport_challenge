@@ -6,7 +6,7 @@ package jobmanager
 import (
 	"context"
 	"errors"
-	"fmt"
+	"log"
 	"sync"
 
 	"github.com/google/uuid"
@@ -104,7 +104,7 @@ func (jm *JobManager) StreamOutput(ctx context.Context, id uuid.UUID, streamer O
 	}
 
 	if err := ctx.Err(); err != nil {
-		fmt.Printf("Context error before starting output stream: %v\n", err)
+		log.Printf("Context error before starting output stream: %v\n", err)
 		return err
 	}
 
@@ -112,10 +112,10 @@ func (jm *JobManager) StreamOutput(ctx context.Context, id uuid.UUID, streamer O
 		streamCtx, cancel := context.WithCancel(ctx)
 		defer cancel()
 
-		fmt.Printf("Starting streamOutput for job %s\n", id)
+		log.Printf("Starting streamOutput for job %s\n", id)
 		err := job.streamOutput(streamCtx, streamer)
 		if err != nil {
-			fmt.Printf("Error streaming output for job %s: %v\n", id, err)
+			log.Printf("Error streaming output for job %s: %v\n", id, err)
 		}
 	}()
 

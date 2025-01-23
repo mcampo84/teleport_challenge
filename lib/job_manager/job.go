@@ -64,7 +64,7 @@ func NewJob() *Job {
 func (j *Job) setStatus(status JobStatus) {
 	log.Printf("Setting job status to %s\n", status)
 	j.mu.Lock()
-	
+
 	defer func() {
 		j.mu.Unlock()
 		j.cond.Broadcast()
@@ -111,14 +111,14 @@ func (j *Job) Start(ctx context.Context, command string, args ...string) {
 		j.setStatus(JobStatusRunning)
 
 		// Log command output
-		log.Print("Logging command output")
+		log.Println("Logging command output")
 		j.wg.Add(1)
 		go j.logOutput(stdout)
 
 		// Wait for the command to finish
 		if err := j.cmd.Wait(); err != nil {
 			if j.GetStatus() != JobStatusStopped {
-				log.Printf("Command failed: %v", err)
+				log.Printf("Command failed: %v\n", err)
 			}
 			// Update Job Status
 			j.setDone(JobStatusError)
@@ -127,8 +127,9 @@ func (j *Job) Start(ctx context.Context, command string, args ...string) {
 		// wait for logOutput to finish
 		j.wg.Wait()
 
-		log.Print("Closing job")
+		log.Printf("Closing job %s\n", j.id.String())
 		j.setDone(JobStatusDone)
+		log.Printf("Job %s closed\n", j.id.String())
 	}()
 }
 
@@ -161,8 +162,10 @@ func (j *Job) setDone(status JobStatus) {
 	defer j.mu.Unlock()
 
 	// do nothing if the job is in a final state
-	if slices.Contains(FinalStates, j.status) { return }
-	
+	if slices.Contains(FinalStates, j.status) {
+		return
+	}
+
 	// close the done channel if not already closed, and set the job status
 	select {
 	case <-j.doneChannel:
@@ -265,8 +268,8 @@ func (j *Job) streamOutput(ctx context.Context, streamer OutputStreamer) error {
 				return err
 			}
 		case <-j.doneChannel:
-			 // Drain the logChannel before returning
-			 for logLine := range logChannel {
+			// Drain the logChannel before returning
+			for logLine := range logChannel {
 				if err := streamer.Send(ctx, logLine); err != nil {
 					return err
 				}
