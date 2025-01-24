@@ -10,6 +10,8 @@ import (
 	"syscall"
 
 	"github.com/google/uuid"
+
+	pb "github.com/mcampo84/teleport_challenge/lib/job_manager/pb/v1"
 )
 
 // Job represents a job that can be managed by the job manager.
@@ -232,7 +234,7 @@ func (j *Job) logOutput(stdout io.ReadCloser) {
 //
 // Returns:
 //   - error: Any error encountered during the streaming process.
-func (j *Job) streamOutput(ctx context.Context, streamer OutputStreamer) error {
+func (j *Job) streamOutput(streamer pb.CommandService_StreamOutputServer) error {
 	// create & add a channel to the Job so we can stream the output as it comes
 	logChannel := make(chan []byte)
 	j.addLogChannel(logChannel)
@@ -242,17 +244,16 @@ func (j *Job) streamOutput(ctx context.Context, streamer OutputStreamer) error {
 	copy(logBuffer, j.logBuffer)
 	j.mu.Unlock()
 
-	if err := ctx.Err(); err != nil {
-		log.Printf("Context error before sending to streamer: %v\n", err)
-		j.removeLogChannel(logChannel)
-		
-		return err
-	}
+	part := int32(0)
 
-	// Stream the existing log buffer
-	log.Printf("Sending log buffer for job %s", j.id)
-	if err := streamer.Send(ctx, logBuffer); err != nil {
-		return err
+	if len(logBuffer) > 0 {
+		// Stream the existing log buffer
+		log.Printf("Sending log buffer for job %s", j.id)
+		if err := streamer.Send(&pb.StreamOutputResponse{Part: part, Buffer: logBuffer}); err != nil {
+			return err
+		}
+
+		part += 1
 	}
 
 	// Stream new log lines and job completion
@@ -262,18 +263,20 @@ func (j *Job) streamOutput(ctx context.Context, streamer OutputStreamer) error {
 			if !ok {
 				return nil
 			}
-			if err := streamer.Send(ctx, logLine); err != nil {
+			if err := streamer.Send(&pb.StreamOutputResponse{Part: part, Buffer: logLine}); err != nil {
 				return err
 			}
 		case <-j.doneChannel:
 			// Drain the logChannel before returning
 			for logLine := range logChannel {
-				if err := streamer.Send(ctx, logLine); err != nil {
+				if err := streamer.Send(&pb.StreamOutputResponse{Part: part, Buffer: logLine}); err != nil {
 					return err
 				}
 			}
 			return nil
 		}
+
+		part += 1
 	}
 }
 

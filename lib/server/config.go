@@ -5,6 +5,7 @@ type Config struct {
 	CertFile string
 	KeyFile  string
 	CaFile   string
+	testEnv  bool
 }
 
 const (
@@ -21,7 +22,6 @@ const (
 	defaultCaFile = "conf/ca.crt"
 )
 
-
 var defaultConfig = NewConfig(
 	defaultAddress,
 	defaultCertFile,
@@ -31,6 +31,13 @@ var defaultConfig = NewConfig(
 
 func GetDefaultConfig() Config {
 	return defaultConfig
+}
+
+func GetTestConfig() Config {
+	cfg := defaultConfig
+	cfg.testEnv = true
+
+	return cfg
 }
 
 // NewConfig returns a new Config with the given values.
@@ -50,4 +57,8 @@ func NewConfig(address, certFile, keyFile, caFile string) Config {
 		KeyFile:  keyFile,
 		CaFile:   caFile,
 	}
+}
+
+func (c Config) Test() bool {
+	return c.testEnv
 }

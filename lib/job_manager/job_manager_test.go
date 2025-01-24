@@ -6,10 +6,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/golang/mock/gomock"
 	"github.com/google/uuid"
-	jobmanager "github.com/mcampo84/teleport_challenge/lib/job_manager"
 	"github.com/stretchr/testify/suite"
+
+	jobmanager "github.com/mcampo84/teleport_challenge/lib/job_manager"
+	pb "github.com/mcampo84/teleport_challenge/lib/job_manager/pb/v1"
 )
 
 type JobManagerTestSuite struct {
@@ -102,12 +103,21 @@ func (suite *JobManagerTestSuite) TestStopJob_NotRunning() {
 	suite.EqualError(err, "job is not running")
 }
 
+type mockStreamOutputServer struct {
+	pb.CommandService_StreamOutputServer
+	received []*pb.StreamOutputResponse
+}
+
+func (m *mockStreamOutputServer) Send(resp *pb.StreamOutputResponse) error {
+	m.received = append(m.received, resp)
+	fmt.Printf("Received: %v\n", resp)
+	return nil
+}
+
 func (suite *JobManagerTestSuite) TestStreamOutput() {
 	// Start ./test_fixtures/test_script.sh with the argument "Hello, world!"
 	jobID, err := suite.jobManager.StartJob(suite.ctx, "./test_fixtures/test_script.sh", "Hello, world!")
 	suite.Require().NoError(err)
-
-	ctx := context.Background()
 
 	// Wait up to 1 second until the job status changes to "Running"
 	for i := 0; i < 10; i++ {
@@ -119,21 +129,15 @@ func (suite *JobManagerTestSuite) TestStreamOutput() {
 	}
 
 	// Create two OutputStreamer clients
-	ctrl := gomock.NewController(suite.T())
-	
 	streamCount := 20
 
 	// Stream the output asynchronously across 20 clients
 	done := make(chan bool)
-	for _, i := range []int{1, streamCount} {
-		client := jobmanager.NewMockOutputStreamer(ctrl)
-		client.EXPECT().Send(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, data []byte) error {
-			fmt.Printf("Client1 received: %s", data)
-			return nil
-		}).AnyTimes()
+	for i := 0; i < streamCount; i++ {
+		client := &mockStreamOutputServer{}
 
-		go func(c jobmanager.OutputStreamer, streamID int) {
-			err := suite.jobManager.StreamOutput(ctx, jobID, c)
+		go func(c pb.CommandService_StreamOutputServer, streamID int) {
+			err := suite.jobManager.StreamOutput(jobID, c)
 			suite.Require().NoError(err, "Client %d", streamID)
 			done <- true
 		}(client, i)
@@ -149,29 +153,27 @@ func (suite *JobManagerTestSuite) TestStreamOutput() {
 	}
 
 	// Wait for both streams to complete
-	for range []int{1, streamCount} {
+	for i := 0; i < streamCount; i++ {
 		<-done
 	}
 }
 
 func (suite *JobManagerTestSuite) TestStreamOutput_NotFound() {
-	ctx := context.Background()
-	client := jobmanager.NewMockOutputStreamer(gomock.NewController(suite.T()))
+	client := &mockStreamOutputServer{}
 	jobID := uuid.New()
 
-	err := suite.jobManager.StreamOutput(ctx, jobID, client)
+	err := suite.jobManager.StreamOutput(jobID, client)
 	suite.EqualError(err, "job not found")
 }
 
 func (suite *JobManagerTestSuite) TestStreamOutput_NotRunning() {
-	ctx := context.Background()
-	client := jobmanager.NewMockOutputStreamer(gomock.NewController(suite.T()))
+	client := &mockStreamOutputServer{}
 	jobID, err := suite.jobManager.StartJob(suite.ctx, "echo", "Hello, world!")
 	suite.Require().NoError(err)
 
 	// Wait for the job to complete
 	time.Sleep(1 * time.Second)
 
-	err = suite.jobManager.StreamOutput(ctx, jobID, client)
-	suite.EqualError(err, "job is not running")
+	err = suite.jobManager.StreamOutput(jobID, client)
+	suite.NoError(err)
 }

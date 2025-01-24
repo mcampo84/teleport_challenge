@@ -5,10 +5,10 @@
 package jobmanager
 
 import (
-	context "context"
 	reflect "reflect"
 
 	gomock "github.com/golang/mock/gomock"
+	v1 "github.com/mcampo84/teleport_challenge/lib/job_manager/pb/v1"
 )
 
 // MockOutputStreamer is a mock of OutputStreamer interface.
@@ -35,15 +35,15 @@ func (m *MockOutputStreamer) EXPECT() *MockOutputStreamerMockRecorder {
 }
 
 // Send mocks base method.
-func (m *MockOutputStreamer) Send(ctx context.Context, output []byte) error {
+func (m *MockOutputStreamer) Send(output *v1.StreamOutputResponse) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Send", ctx, output)
+	ret := m.ctrl.Call(m, "Send", output)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // Send indicates an expected call of Send.
-func (mr *MockOutputStreamerMockRecorder) Send(ctx, output interface{}) *gomock.Call {
+func (mr *MockOutputStreamerMockRecorder) Send(output interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Send", reflect.TypeOf((*MockOutputStreamer)(nil).Send), ctx, output)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Send", reflect.TypeOf((*MockOutputStreamer)(nil).Send), output)
 }

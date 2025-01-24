@@ -5,11 +5,13 @@ package jobmanager
 
 import (
 	"context"
-	"errors"
+	"fmt"
 	"log"
 	"sync"
 
 	"github.com/google/uuid"
+
+	pb "github.com/mcampo84/teleport_challenge/lib/job_manager/pb/v1"
 )
 
 // JobStatus represents the status of a job.
@@ -93,37 +95,21 @@ func (jm *JobManager) StartJob(ctx context.Context, command string, args ...stri
 //
 // Returns:
 //   - error: Any error encountered during the streaming process.
-func (jm *JobManager) StreamOutput(ctx context.Context, id uuid.UUID, streamer OutputStreamer) error {
+func (jm *JobManager) StreamOutput(id uuid.UUID, streamer pb.CommandService_StreamOutputServer) (err error) {
 	job, err := jm.getJob(id)
 	if err != nil {
 		return err
 	}
 
-	if job.GetStatus() != JobStatusRunning {
-		return errors.New("job is not running")
-	}
-
-	if err := ctx.Err(); err != nil {
-		log.Printf("Context error before starting output stream: %v\n", err)
-		return err
-	}
-
 	go func() {
-		streamCtx, cancel := context.WithCancel(ctx)
-		defer cancel()
-
 		log.Printf("Starting streamOutput for job %s\n", id)
-		err := job.streamOutput(streamCtx, streamer)
+		err = job.streamOutput(streamer)
 		if err != nil {
 			log.Printf("Error streaming output for job %s: %v\n", id, err)
 		}
-
-		if err := streamCtx.Err(); err != nil {
-			log.Printf("Context error after streaming output: %v\n", err)
-		}
 	}()
 
-	return nil
+	return err
 }
 
 // StopJob stops a job with the given UUID.
@@ -141,7 +127,7 @@ func (jm *JobManager) StopJob(ctx context.Context, id uuid.UUID) error {
 	}
 
 	if job.GetStatus() != JobStatusRunning {
-		return errors.New("job is not running")
+		return fmt.Errorf("job is not running")
 	}
 
 	return job.Stop()
@@ -178,7 +164,7 @@ func (jm *JobManager) getJob(id uuid.UUID) (*Job, error) {
 
 	job, ok := jm.jobs[id.String()]
 	if !ok {
-		return nil, errors.New("job not found")
+		return nil, fmt.Errorf("job not found")
 	}
 
 	return job, nil
