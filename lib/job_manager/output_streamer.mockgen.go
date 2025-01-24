@@ -8,6 +8,7 @@ import (
 	reflect "reflect"
 
 	gomock "github.com/golang/mock/gomock"
+	v1 "github.com/mcampo84/teleport_challenge/lib/job_manager/pb/v1"
 )
 
 // MockOutputStreamer is a mock of OutputStreamer interface.
@@ -34,7 +35,7 @@ func (m *MockOutputStreamer) EXPECT() *MockOutputStreamerMockRecorder {
 }
 
 // Send mocks base method.
-func (m *MockOutputStreamer) Send(output []byte) error {
+func (m *MockOutputStreamer) Send(output *v1.StreamOutputResponse) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Send", output)
 	ret0, _ := ret[0].(error)

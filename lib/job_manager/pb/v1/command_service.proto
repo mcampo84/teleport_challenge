@@ -1,0 +1,46 @@
+syntax = "proto3";
+
+package job_manager;
+
+option go_package = "github.com/mcampo84/teleport_challenge/lib/job_manager/pb/v1";
+
+service CommandService {
+    rpc Start (StartRequest) returns (StartResponse);
+    rpc Stop (StopRequest) returns (StopResponse);
+    rpc Status (StatusRequest) returns (StatusResponse);
+    rpc StreamOutput (StreamOutputRequest) returns (stream StreamOutputResponse);
+}
+
+message StartRequest {
+    string command = 1;
+    repeated string arguments = 2;
+}
+
+message StartResponse {
+    string uuid = 1;
+}
+
+message StopRequest {
+    string uuid = 1;
+}
+
+message StopResponse {
+    string result = 1;
+}
+
+message StatusRequest {
+    string uuid = 1;
+}
+
+message StatusResponse {
+    string status = 1;
+}
+
+message StreamOutputRequest {
+    string uuid = 1;
+}
+
+message StreamOutputResponse {
+    bytes buffer = 1;
+    int32 part = 2;
+}

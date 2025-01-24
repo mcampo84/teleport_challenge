@@ -2,14 +2,16 @@ package jobmanager
 
 import (
 	"context"
-	"errors"
 	"io"
 	"log"
 	"os/exec"
 	"slices"
 	"sync"
+	"syscall"
 
 	"github.com/google/uuid"
+
+	pb "github.com/mcampo84/teleport_challenge/lib/job_manager/pb/v1"
 )
 
 // Job represents a job that can be managed by the job manager.
@@ -63,7 +65,7 @@ func NewJob() *Job {
 func (j *Job) setStatus(status JobStatus) {
 	log.Printf("Setting job status to %s\n", status)
 	j.mu.Lock()
-	
+
 	defer func() {
 		j.mu.Unlock()
 		j.cond.Broadcast()
@@ -91,7 +93,9 @@ func (j *Job) GetStatus() JobStatus {
 //   - args: Additional arguments for the command
 func (j *Job) Start(ctx context.Context, command string, args ...string) {
 	go func() {
-		j.cmd = exec.CommandContext(ctx, command, args...)
+		// Create a new context without a timeout for command execution
+		cmdCtx := context.Background()
+		j.cmd = exec.CommandContext(cmdCtx, command, args...)
 		stdout, err := j.cmd.StdoutPipe()
 		if err != nil {
 			log.Printf("Failed to get stdout pipe: %v\n", err)
@@ -108,14 +112,14 @@ func (j *Job) Start(ctx context.Context, command string, args ...string) {
 		j.setStatus(JobStatusRunning)
 
 		// Log command output
-		log.Print("Logging command output")
+		log.Println("Logging command output")
 		j.wg.Add(1)
 		go j.logOutput(stdout)
 
 		// Wait for the command to finish
 		if err := j.cmd.Wait(); err != nil {
 			if j.GetStatus() != JobStatusStopped {
-				log.Printf("Command failed: %v", err)
+				log.Printf("Command failed: %v\n", err)
 			}
 			// Update Job Status
 			j.setDone(JobStatusError)
@@ -124,8 +128,9 @@ func (j *Job) Start(ctx context.Context, command string, args ...string) {
 		// wait for logOutput to finish
 		j.wg.Wait()
 
-		log.Print("Closing job")
+		log.Printf("Closing job %s\n", j.id.String())
 		j.setDone(JobStatusDone)
+		log.Printf("Job %s closed\n", j.id.String())
 	}()
 }
 
@@ -137,8 +142,7 @@ func (j *Job) Start(ctx context.Context, command string, args ...string) {
 func (j *Job) Stop() error {
 	// Attempt to stop the command if it's running
 	if j.cmd != nil && j.cmd.Process != nil {
-		log.Printf("Sending SIGTERM to process %d", j.cmd.Process.Pid)
-		if err := j.cmd.Process.Kill(); err != nil {
+		if err := j.cmd.Process.Signal(syscall.SIGTERM); err != nil {
 			log.Printf("Failed to send SIGTERM: %v", err)
 			return err
 		}
@@ -159,8 +163,10 @@ func (j *Job) setDone(status JobStatus) {
 	defer j.mu.Unlock()
 
 	// do nothing if the job is in a final state
-	if slices.Contains(FinalStates, j.status) { return }
-	
+	if slices.Contains(FinalStates, j.status) {
+		return
+	}
+
 	// close the done channel if not already closed, and set the job status
 	select {
 	case <-j.doneChannel:
@@ -178,7 +184,10 @@ func (j *Job) setDone(status JobStatus) {
 // Parameters:
 //   - stdout: The stdout pipe of the command.
 func (j *Job) logOutput(stdout io.ReadCloser) {
-	defer j.wg.Done()
+	defer func() {
+		j.wg.Done()
+		log.Println("logging complete")
+	}()
 	buffer := make([]byte, 1024)
 
 	// read the output in 1024-byte chunks, and forward to the log buffer (and all waiting channels)
@@ -187,10 +196,12 @@ func (j *Job) logOutput(stdout io.ReadCloser) {
 		if err != nil {
 			// if EOF is reached or the file is closed, we can close the log channels
 			if err == io.EOF || n == 0 {
+				j.mu.Lock()
 				for _, ch := range j.logChannels {
 					close(ch)
 				}
-
+				j.mu.Unlock()
+				j.cond.Broadcast()
 				return
 			}
 			log.Printf("Error reading command output: %v", err)
@@ -198,7 +209,6 @@ func (j *Job) logOutput(stdout io.ReadCloser) {
 		}
 
 		logLine := buffer[:n]
-		log.Printf("%s\n", string(logLine))
 
 		j.mu.Lock()
 		// add lines to the LogBuffer, to support new clients requesting an output stream
@@ -224,22 +234,26 @@ func (j *Job) logOutput(stdout io.ReadCloser) {
 //
 // Returns:
 //   - error: Any error encountered during the streaming process.
-func (j *Job) streamOutput(streamer OutputStreamer) error {
-	if j.status != JobStatusRunning {
-		return errors.New("job is not running")
-	}
-
+func (j *Job) streamOutput(streamer pb.CommandService_StreamOutputServer) error {
 	// create & add a channel to the Job so we can stream the output as it comes
 	logChannel := make(chan []byte)
+	j.addLogChannel(logChannel)
+
 	j.mu.Lock()
-	j.logChannels = append(j.logChannels, logChannel)
-	var logBuffer []byte 
+	logBuffer := make([]byte, len(j.logBuffer))
 	copy(logBuffer, j.logBuffer)
 	j.mu.Unlock()
 
-	// Stream the existing log buffer
-	if err := streamer.Send(logBuffer); err != nil {
-		return err
+	part := int32(0)
+
+	if len(logBuffer) > 0 {
+		// Stream the existing log buffer
+		log.Printf("Sending log buffer for job %s", j.id)
+		if err := streamer.Send(&pb.StreamOutputResponse{Part: part, Buffer: logBuffer}); err != nil {
+			return err
+		}
+
+		part += 1
 	}
 
 	// Stream new log lines and job completion
@@ -249,17 +263,36 @@ func (j *Job) streamOutput(streamer OutputStreamer) error {
 			if !ok {
 				return nil
 			}
-			if err := streamer.Send(logLine); err != nil {
+			if err := streamer.Send(&pb.StreamOutputResponse{Part: part, Buffer: logLine}); err != nil {
 				return err
 			}
 		case <-j.doneChannel:
-			 // Drain the logChannel before returning
-			 for logLine := range logChannel {
-				if err := streamer.Send(logLine); err != nil {
+			// Drain the logChannel before returning
+			for logLine := range logChannel {
+				if err := streamer.Send(&pb.StreamOutputResponse{Part: part, Buffer: logLine}); err != nil {
 					return err
 				}
 			}
 			return nil
+		}
+
+		part += 1
+	}
+}
+
+func (j *Job) addLogChannel(logChannel chan []byte) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+
+	j.logChannels = append(j.logChannels, logChannel)
+}
+
+func (j *Job) removeLogChannel(logChannel chan []byte) {
+	for i, ch := range j.logChannels {
+		if ch == logChannel {
+			j.logChannels = append(j.logChannels[:i], j.logChannels[i+1:]...)
+			close(ch)
+			break
 		}
 	}
 }
